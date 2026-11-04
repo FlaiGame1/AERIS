@@ -85,25 +85,29 @@ def _send_msg(sock, kind, payload=None, request_id="aeris"):
 
 
 def _close_ws(sock):
+    """Complete the WebSocket close handshake before closing the TCP socket."""
     if sock is None:
         return
     try:
-        _send_frame(sock, b"", 8)
-        sock.settimeout(1.0)
+        _send_frame(sock, struct.pack("!H", 1000), 8)
+        sock.settimeout(2.0)
+        first, second = _read_exact(sock, 2)
+        size = second & 127
+        if size == 126:
+            size = struct.unpack("!H", _read_exact(sock, 2))[0]
+        elif size == 127:
+            size = struct.unpack("!Q", _read_exact(sock, 8))[0]
+        if second & 128:
+            _read_exact(sock, 4)
+        if size:
+            _read_exact(sock, min(size, 125))
+    except Exception:
+        pass
+    finally:
         try:
-            _read_exact(sock, 2)
+            sock.close()
         except Exception:
             pass
-    except Exception:
-        pass
-    try:
-        sock.shutdown(socket.SHUT_RDWR)
-    except Exception:
-        pass
-    try:
-        sock.close()
-    except Exception:
-        pass
 
 
 def _open_connection(host, port):
