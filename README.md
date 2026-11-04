@@ -23,16 +23,16 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Chunked transfer (1 MiB chunks) with SHA-256 integrity verification.
 - Audio and video playback through the bundled mpv engine.
 - Phone controls: pause/resume, stop, seek backward/forward and volume up/down.
-- Plugin actions in Telegram message menus and profile action menus (profile-track extraction depends on what the Telegram client exposes to plugins).
+- Telegram plugin action in the long-press message context menu; additional audio-player and profile menu integrations are best-effort and depend on the Telegram client build.
 - Remote playback status: current title, playback position, duration and pause state.
 - Received files are stored under the Windows temporary AERIS folder.
 - Standalone browser uploader on the PC (port 45873) for sending local files from Android without Telegram.
 
 ### Development status
 
-AERIS is in early development. The Android plugin currently reads media from the Telegram client's local cache, so the media must be downloaded in Telegram before sending. The actual transfer from phone to PC is local and does not pass through Telegram servers. If Telegram is blocked but the file is already cached on the phone and both devices can communicate over the local network, transfer can still work.
+AERIS is a working first-version candidate, not yet an official release. The Android side is a Telegram plugin only; there is no separate Android application. The plugin asks the active Telegram client's FileLoader for an already downloaded media file, so media must be available locally before sending. The transfer itself is direct over the local network and does not pass through Telegram servers. If Telegram is blocked but the file is already cached and both devices can communicate over the LAN, the transfer can still work. When Telegram cannot provide the file, the browser uploader can send a file selected from Android storage.
 
-The Telegram plugin has a profile action-menu entry that now checks Telegram's `saved_music` document and resolves its local file through the client's file loader. A guarded low-level hook also attempts to inject **Play through AERIS** into the native `AudioPlayerAlert` three-dot menu by extending the player's `ItemOptions` menu. This hook depends on Telegram's internal class/method names and still requires on-device validation against the exact AyuGram/exteraGram build. The plugin transfers media already available in Telegram's local cache. As a Telegram-independent fallback, AERIS Desktop serves a local browser upload page at http://<PC-LAN-IP>:45873: open it on the phone, enter the short pairing code, choose a local audio/video file and send it directly to the PC. The Windows player currently uses a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
+The long-press message action is the verified Telegram transfer entry point. The plugin also contains best-effort hooks for the native audio-player overflow menu and profile music; these integrations are client-version-sensitive and are not guaranteed on every AyuGram/exteraGram build. The video message's own three-dot menu is not yet implemented. AERIS Desktop serves a browser upload page at http://<PC-LAN-IP>:45873 for direct file selection on Android. Windows playback currently uses a separate mpv window. Transfer resume, transport encryption, device-management UI, and a native video-message overflow action are not part of this candidate yet.
 
 ### Security
 
@@ -44,7 +44,6 @@ AERIS/
 - desktop/ — Rust Windows receiver and player controller
 - plugin/ — Python AyuGram / exteraGram plugin
 - protocol/ — shared protocol specification
-- docs/ — architecture and developer documentation
 - licenses/ — third-party license notices
 - .github/workflows/ — CI and release builds
 
@@ -97,7 +96,6 @@ AERIS/
 - desktop/ — приёмник и контроллер плеера для Windows на Rust
 - plugin/ — Python-плагин AyuGram / exteraGram
 - protocol/ — спецификация общего протокола
-- docs/ — архитектура и документация разработчика
 - licenses/ — лицензии сторонних компонентов
 - .github/workflows/ — CI и сборки релизов
 
