@@ -85,23 +85,34 @@ def _send_msg(sock, kind, payload=None, request_id="aeris"):
 
 
 def _close_ws(sock):
-    """Complete the WebSocket close handshake before closing the TCP socket."""
+    """Finish the WebSocket close handshake, including interleaved control frames."""
     if sock is None:
         return
     try:
-        _send_frame(sock, struct.pack("!H", 1000), 8)
         sock.settimeout(2.0)
-        first, second = _read_exact(sock, 2)
-        size = second & 127
-        if size == 126:
-            size = struct.unpack("!H", _read_exact(sock, 2))[0]
-        elif size == 127:
-            size = struct.unpack("!Q", _read_exact(sock, 8))[0]
-        if second & 128:
-            _read_exact(sock, 4)
-        if size:
-            _read_exact(sock, min(size, 125))
+        _send_frame(sock, struct.pack("!H", 1000), 8)
+        # A ping may arrive before the server's close reply. Do not mistake it
+        # for the close acknowledgement or tear down TCP prematurely.
+        for _ in range(8):
+            first, second = _read_exact(sock, 2)
+            opcode = first & 15
+            size = second & 127
+            if size == 126:
+                size = struct.unpack("!H", _read_exact(sock, 2))[0]
+            elif size == 127:
+                size = struct.unpack("!Q", _read_exact(sock, 8))[0]
+            if size > 125 and opcode >= 8:
+                raise ValueError("Некорректный управляющий WebSocket-кадр")
+            mask = _read_exact(sock, 4) if second & 128 else None
+            data = _read_exact(sock, size)
+            if mask:
+                data = bytes(value ^ mask[index % 4] for index, value in enumerate(data))
+            if opcode == 8:
+                break
+            if opcode == 9:
+                _send_frame(sock, data, 10)
     except Exception:
+        # Closing is best-effort; the transfer/control result is already known.
         pass
     finally:
         try:
