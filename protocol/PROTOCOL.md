@@ -2,7 +2,7 @@
 
 **Status:** early implementation  
 **Transport:** WebSocket over TCP  
-**Default port:** 45872  
+**Default ports:** 45872 (WebSocket), 45873 (browser upload)  
 **WebSocket path:** /ws
 
 ## 1. Overview
@@ -45,7 +45,7 @@ After pairing, the plugin sends begin_media with file_name, mime_type, size and 
 
 The maximum media size is 512 MiB. The plugin currently resolves media only from the Telegram client's local cache. Media must be downloaded in Telegram first. A separate Android file picker / standalone sender is planned so AERIS can work without Telegram.
 
-## 6. Playback commands
+## 6. Browser upload (Telegram-independent fallback)\n\nDesktop also serves a small upload page over HTTP on TCP port 45873. Open `http://<PC-LAN-IP>:45873` from the phone browser, enter the six-character pairing code, choose a local audio/video file and upload it. The file is streamed directly to the PC, saved under `%TEMP%\\AERIS\\Received`, and passed to mpv. The upload endpoint checks the same short-lived pairing code and enforces the 512 MiB size limit.\n\nThis path does not require Telegram to be installed, logged in or reachable. Both devices must still be on the same LAN, and the Windows firewall must allow private-network traffic to TCP ports 45872 and 45873. The HTTP upload page is unencrypted; use only a trusted private network.\n\n## 7. Playback commands
 
 All commands require a paired session.
 
@@ -64,11 +64,11 @@ All commands require a paired session.
 
 Successful player commands return command_result with payload.success = true. A playback-engine failure returns an error message. `get_status` returns `playback_status` with the current mpv properties in its payload.
 
-## 7. Desktop playback engine
+## 8. Desktop playback engine
 
 AERIS Desktop launches the bundled mpv.exe on the first playback request and controls it over a local Windows named pipe. The mpv directory must remain beside aeris-desktop.exe. mpv's IPC endpoint is local to the desktop process and is not exposed on the LAN.
 
-## 8. Current limitations
+## 9. Current limitations
 
 - Telegram media must already be downloaded and present in the app cache.
 - A standalone Android file picker and independent Android sender are not implemented yet.
