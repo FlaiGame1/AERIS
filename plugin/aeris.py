@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.8"
+__version__ = "0.3.9"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -351,7 +351,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.8 loaded")
+        self.logger.info("AERIS 0.3.9 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -402,7 +402,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.8", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.9", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -624,19 +624,45 @@ class AerisPlugin(BasePlugin):
         BulletinHelper.show_error("Не удалось найти загруженный файл профильной музыки. Сначала открой трек в Telegram и дождись его загрузки.")
 
     def _on_message_menu(self, context):
-        self.logger.info("AERIS menu context keys: {}".format(list(context.keys())))
-        message = context.get("message")
-        if message is None:
-            BulletinHelper.show_error("Не удалось получить сообщение Telegram")
-            return
+        # This notification is deliberately the first operation: if it does
+        # not appear, the client never invoked the registered menu callback.
+        BulletinHelper.show_info("AERIS: нажата команда передачи")
         try:
-            host, port, code = self._values()
-            path = _media_path(message, context.get("account"))
-        except Exception as error:
-            BulletinHelper.show_error(str(error))
-            return
+            try:
+                keys = list(context.keys()) if context is not None and hasattr(context, "keys") else []
+            except Exception:
+                keys = []
+            self.logger.info("AERIS message action invoked; context type={}, keys={}".format(type(context).__name__, keys))
 
-        self._send_path(path, "медиа")
+            message = None
+            account = None
+            if context is not None:
+                getter = getattr(context, "get", None)
+                if callable(getter):
+                    message = getter("message")
+                    account = getter("account")
+                    if message is None:
+                        grouped = getter("groupedMessages")
+                        if grouped:
+                            try:
+                                message = grouped[0]
+                            except Exception:
+                                message = None
+
+            if message is None:
+                raise RuntimeError(
+                    "Обработчик AERIS вызван, но Telegram не передал context['message']. "
+                    "Ключи контекста: {}".format(", ".join(keys) or "нет")
+                )
+
+            self.logger.info("AERIS selected message object: {}".format(type(message).__name__))
+            host, port, code = self._values()
+            path = _media_path(message, account)
+            self.logger.info("AERIS resolved local media path: {}".format(path))
+            self._send_path(path, "медиа")
+        except Exception as error:
+            self.logger.exception("AERIS message menu action failed")
+            BulletinHelper.show_error("AERIS: {}".format(error))
 
 
 class _AerisItemOptionsHook(MethodHook):
