@@ -2,6 +2,14 @@ name: Build AERIS Desktop for Windows
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "protocol/**"
+      - "plugin/**"
+      - "licenses/**"
+      - ".github/workflows/build-windows.yml"
   push:
     branches: [main, feature/native-player-and-remote-control]
     paths:
