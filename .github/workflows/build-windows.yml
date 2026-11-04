@@ -84,7 +84,7 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\licenses\MPV-RUNTIME-NOTICE.txt" "$stage\licenses" -Force
           Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
           @"
-          AERIS Desktop 0.5.0 preview
+          AERIS Desktop 0.5.1 preview
 
           Run aeris-desktop.exe. The first media transfer starts the bundled
           mpv playback engine. Audio and video playback are handled by mpv.
@@ -92,7 +92,7 @@ jobs:
 
           The Android plugin pairs once using the six-character code. A
           device token is then stored on this PC and reused for later sessions.
-          The phone can play, pause, resume, stop, seek and change volume.
+          The phone can play, pause, resume, stop, seek, change volume and request playback status.
 
           AERIS uses an unencrypted WebSocket connection on the private LAN.
           Use only a trusted home network. Do not expose port 45872 to the internet.
