@@ -11,7 +11,7 @@ on:
       - "licenses/**"
       - ".github/workflows/build-windows.yml"
   push:
-    branches: [main, feature/native-player-and-remote-control, feature/standalone-lan-uploader-v2]
+    branches: [main, material-3, feature/native-player-and-remote-control, feature/standalone-lan-uploader-v2]
     tags: ["v*"]
     paths:
       - "desktop/**"
