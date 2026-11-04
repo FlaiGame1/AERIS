@@ -469,6 +469,7 @@ async fn handle_client(
         drop(transfer.file);
         let _ = fs::remove_file(transfer.path);
     }
+    if paired { let _ = status.send(format!("Устройство отключено: {peer}")); }
     Ok(())
 }
 
@@ -758,7 +759,6 @@ fn save_paired_tokens(tokens: &HashSet<String>) -> Result<()> {
         fs::copy(&temporary, &path)?;
         fs::remove_file(&temporary)
     })?;
-    if paired { let _ = status.send(format!("Устройство отключено: {peer}")); }
     Ok(())
 }
 
