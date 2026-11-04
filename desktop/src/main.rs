@@ -272,7 +272,7 @@ impl eframe::App for AerisDesktop {
                     );
                     self.cover_texture = Some(ctx.load_texture("aeris-track-cover", cover_color, egui::TextureOptions::LINEAR));
 
-                    let blurred = image::imageops::blur(&decoded.resize_to_fill(1000, 1000, image::imageops::FilterType::Triangle), 28.0).to_rgba8();
+                    let blurred = image::imageops::blur(&decoded.resize_to_fill(1000, 1000, image::imageops::FilterType::Triangle), 28.0);
                     let background_color = egui::ColorImage::from_rgba_unmultiplied(
                         [blurred.width() as usize, blurred.height() as usize], blurred.as_raw()
                     );
