@@ -305,7 +305,38 @@ def _media_path(message_or_document, account=None):
         "AERIS не ищет папки AyuGram/exteraGram и не читает зашифрованные blobs. "
         "Диагностика: {}".format(detail)
     )
-def _transfer(host, port, code, path, device_token=""):
+def _media_metadata(message):
+    """Read visible Telegram audio tags from the selected message/document."""
+    result = {"track_title": "", "track_artist": ""}
+    try:
+        owner = getattr(message, "messageOwner", None)
+        candidates = [message, owner]
+        for candidate in list(candidates):
+            media = getattr(candidate, "media", None) if candidate is not None else None
+            document = getattr(media, "document", None) if media is not None else None
+            if document is not None:
+                candidates.append(document)
+        for candidate in candidates:
+            attributes = getattr(candidate, "attributes", None)
+            if attributes is None:
+                continue
+            for attribute in attributes:
+                if "AudioAttribute" not in str(type(attribute)) and not hasattr(attribute, "performer"):
+                    continue
+                title = str(getattr(attribute, "title", "") or "").strip()
+                artist = str(getattr(attribute, "performer", "") or "").strip()
+                if title:
+                    result["track_title"] = title
+                if artist:
+                    result["track_artist"] = artist
+                if title or artist:
+                    return result
+    except Exception:
+        pass
+    return result
+
+
+def _transfer(host, port, code, path, device_token="", metadata=None):
     size = os.path.getsize(path)
     if size <= 0 or size > MAX_MEDIA_BYTES:
         raise ValueError("Файл пустой или больше лимита 512 МиБ")
@@ -325,6 +356,8 @@ def _transfer(host, port, code, path, device_token=""):
             "mime_type": mime_type,
             "size": size,
             "sha256": digest.hexdigest(),
+            "track_title": (metadata or {}).get("track_title", ""),
+            "track_artist": (metadata or {}).get("track_artist", ""),
         }, "begin")
         if response.get("type") != "media_ready":
             raise RuntimeError("ПК не подготовил приём файла")
@@ -510,7 +543,7 @@ class AerisPlugin(BasePlugin):
         self._control("volume_delta", {"delta": 5})
 
 
-    def _send_path(self, path, label="медиа"):
+    def _send_path(self, path, label="медиа", metadata=None):
         try:
             host, port, code = self._values()
         except Exception as error:
@@ -521,7 +554,7 @@ class AerisPlugin(BasePlugin):
 
         def work():
             try:
-                result, new_token = _transfer(host, port, code, path, token)
+                result, new_token = _transfer(host, port, code, path, token, metadata)
                 self.set_setting("device_token", new_token)
                 self.logger.info(result)
                 BulletinHelper.show_success(result)
@@ -594,7 +627,7 @@ class AerisPlugin(BasePlugin):
                 raise RuntimeError("Сейчас в Telegram ничего не воспроизводится")
             account = getattr(message, "currentAccount", None)
             path = _media_path(message, account)
-            self._send_path(path, "текущий трек")
+            self._send_path(path, "текущий трек", _media_metadata(message))
         except Exception as error:
             self.logger.exception("AERIS current player transfer failed")
             BulletinHelper.show_error("Не удалось передать текущий трек: {}".format(error))
@@ -659,7 +692,7 @@ class AerisPlugin(BasePlugin):
             host, port, code = self._values()
             path = _media_path(message, account)
             self.logger.info("AERIS resolved local media path: {}".format(path))
-            self._send_path(path, "медиа")
+            self._send_path(path, "медиа", _media_metadata(message))
         except Exception as error:
             self.logger.exception("AERIS message menu action failed")
             BulletinHelper.show_error("AERIS: {}".format(error))
