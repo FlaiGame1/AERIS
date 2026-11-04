@@ -15,7 +15,6 @@ const PORT:u16=45872;
 const MAX_MESSAGE_BYTES:usize=64*1024;
 const MAX_MEDIA_BYTES:u64=512*1024*1024;
 const MAX_CHUNK_BYTES:usize=1024*1024;
-const PAIRING_LIFETIME:Duration=Duration::from_secs(180);
 
 #[derive(Debug,Deserialize)]
 struct Envelope { protocol:String, version:u8, #[serde(rename="type")] kind:String, #[serde(default)] id:Option<String>, #[serde(default)] payload:Value }
@@ -26,16 +25,15 @@ pub async fn run_server(shutdown:Arc<Notify>,status:mpsc::Sender<String>)->Resul
  if !is_private_ip(ip){bail!("Определён непубличный LAN-адрес: {ip}. Сервер не будет запускаться.");}
  let listener=TcpListener::bind(SocketAddr::new(ip,PORT)).await.with_context(||format!("Не удалось открыть порт {PORT}"))?;
  let pairing_code=Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
- let expires_at=Instant::now()+PAIRING_LIFETIME;
  let player=Arc::new(Mutex::new(AudioPlayer::default()));
  let _=status.send(format!("AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"));
  loop { tokio::select! {
   _=shutdown.notified()=>{let _=status.send("Сервер AERIS остановлен".into());break;}
-  accepted=listener.accept()=>{let(stream,peer)=accepted.context("Ошибка входящего TCP-подключения")?;let code=pairing_code.clone();let status=status.clone();let player=player.clone();tokio::spawn(async move{if let Err(e)=handle_client(stream,peer,code,expires_at,status,player).await{tracing::warn!("AERIS client {peer} disconnected: {e:#}");}});}
+  accepted=listener.accept()=>{let(stream,peer)=accepted.context("Ошибка входящего TCP-подключения")?;let code=pairing_code.clone();let status=status.clone();let player=player.clone();tokio::spawn(async move{if let Err(e)=handle_client(stream,peer,code,status,player).await{tracing::warn!("AERIS client {peer} disconnected: {e:#}");}});}
  }}
  Ok(())
 }
-async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expires_at:Instant,status:mpsc::Sender<String>,player:Arc<Mutex<AudioPlayer>>)->Result<()>{
+async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,status:mpsc::Sender<String>,player:Arc<Mutex<AudioPlayer>>)->Result<()>{
  let ws=accept_async(stream).await.context("WebSocket handshake failed")?;let(mut write,mut read)=ws.split();let mut paired=false;let mut incoming:Option<IncomingMedia>=None;
  while let Some(message)=read.next().await {match message.context("WebSocket read failed")? {
   Message::Text(text)=>{
@@ -43,8 +41,8 @@ async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expi
    let env:Envelope=match serde_json::from_str(&text){Ok(v)=>v,Err(e)=>{send_error(&mut write,None,"invalid_json",&e.to_string()).await?;continue;}};
    if env.protocol!="aeris"||env.version!=PROTOCOL_VERSION{send_error(&mut write,env.id,"unsupported_protocol","Ожидается AERIS v1").await?;continue;}
    match env.kind.as_str(){
-    "hello"=>send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"hello_ack","id":env.id,"payload":{"server_name":"AERIS Desktop","protocol_version":1,"pairing_required":true,"pairing_expires_in":expires_at.saturating_duration_since(Instant::now()).as_secs()}})).await?,
-    "pair"=>{let code=env.payload.get("code").and_then(Value::as_str).unwrap_or("");if Instant::now()>expires_at||code!=pairing_code{send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"pair_result","id":env.id,"payload":{"paired":false,"reason":"invalid_or_expired_code"}})).await?;}else{paired=true;let _=status.send(format!("Подключено устройство: {peer}"));send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"pair_result","id":env.id,"payload":{"paired":true,"session":"temporary"}})).await?;}}
+    "hello"=>send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"hello_ack","id":env.id,"payload":{"server_name":"AERIS Desktop","protocol_version":1,"pairing_required":true,"pairing_expires_in":null,"pairing_lifetime":"until_receiver_stops"}})).await?,
+    "pair"=>{let code=env.payload.get("code").and_then(Value::as_str).unwrap_or("");if code!=pairing_code{send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"pair_result","id":env.id,"payload":{"paired":false,"reason":"invalid_or_expired_code"}})).await?;}else{paired=true;let _=status.send(format!("Подключено устройство: {peer}"));send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"pair_result","id":env.id,"payload":{"paired":true,"session":"temporary"}})).await?;}}
     "ping"=>send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"pong","id":env.id,"payload":{}})).await?,
     "begin_media"=>{
      if !paired{send_error(&mut write,env.id,"pairing_required","Сначала выполните сопряжение").await?;continue;}
