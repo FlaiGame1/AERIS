@@ -8,7 +8,7 @@ use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 use tokio::sync::Notify;
 
-struct NexusCast {
+struct AerisDesktop {
     receiver_thread: Option<JoinHandle<()>>,
     shutdown: Option<Arc<Notify>>,
     ready_rx: Option<mpsc::Receiver<String>>,
@@ -16,19 +16,19 @@ struct NexusCast {
     device_name: String,
 }
 
-impl Default for NexusCast {
+impl Default for AerisDesktop {
     fn default() -> Self {
         Self {
             receiver_thread: None,
             shutdown: None,
             ready_rx: None,
             status: "Приёмник остановлен".to_owned(),
-            device_name: "NEXUS CAST — этот компьютер".to_owned(),
+            device_name: "AERIS Desktop — этот компьютер".to_owned(),
         }
     }
 }
 
-impl NexusCast {
+impl AerisDesktop {
     fn start_receiver(&mut self) {
         let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) else {
             self.status = "Не удалось определить папку программы".to_owned();
@@ -41,7 +41,7 @@ impl NexusCast {
         }
 
         let cli = cast::config::Cli {
-            friendly_name: Some("NEXUS CAST".to_owned()),
+            friendly_name: Some("AERIS Desktop".to_owned()),
             model: "Chromecast Ultra".to_owned(),
             device_id: None,
             port: 8009,
@@ -65,7 +65,7 @@ impl NexusCast {
         let startup_error_tx = ready_tx.clone();
 
         let thread = thread::Builder::new()
-            .name("nexus-cast-receiver".to_owned())
+            .name("aeris-desktop-receiver".to_owned())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
@@ -87,7 +87,7 @@ impl NexusCast {
                 self.shutdown = Some(shutdown);
                 self.ready_rx = Some(ready_rx);
                 self.receiver_thread = Some(handle);
-                self.status = "Запускаем Cast-сервис…".to_owned();
+                self.status = "Запускаем приёмник…".to_owned();
             }
             Err(error) => self.status = format!("Не удалось создать поток: {error}"),
         }
@@ -135,7 +135,7 @@ impl NexusCast {
     }
 }
 
-impl Drop for NexusCast {
+impl Drop for AerisDesktop {
     fn drop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.notify_one();
@@ -146,7 +146,7 @@ impl Drop for NexusCast {
     }
 }
 
-impl eframe::App for NexusCast {
+impl eframe::App for AerisDesktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.check_receiver();
         let bg = egui::Color32::from_rgb(18, 25, 35);
@@ -159,7 +159,7 @@ impl eframe::App for NexusCast {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("NEXUS").size(15.0).strong().color(accent));
+                    ui.label(egui::RichText::new("AERIS").size(15.0).strong().color(accent));
                     ui.heading(egui::RichText::new("CAST").size(34.0).strong().color(egui::Color32::WHITE));
                     ui.label(egui::RichText::new("Транслируй. Слушай. Смотри.").size(14.0).color(muted));
                 });
@@ -194,7 +194,7 @@ impl eframe::App for NexusCast {
                         ui.add_space(7.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("02").color(accent).strong());
-                            ui.label(egui::RichText::new("Выбери NEXUS CAST в приложении").color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new("Выбери AERIS в приложении").color(egui::Color32::WHITE));
                         });
                         ui.add_space(7.0);
                         ui.horizontal(|ui| {
@@ -204,7 +204,7 @@ impl eframe::App for NexusCast {
                     });
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("Встроенный Cast V2 • mDNS • MPV").size(11.0).color(muted));
+                    ui.label(egui::RichText::new("Временный Cast V2 backend • MPV").size(11.0).color(muted));
                     ui.label(egui::RichText::new("Неофициальный приёмник: совместимость зависит от приложения").size(10.0).color(muted));
                 });
             });
@@ -213,7 +213,7 @@ impl eframe::App for NexusCast {
 }
 
 fn main() -> eframe::Result<()> {
-    if let Ok(file) = std::fs::File::create(std::env::temp_dir().join("nexus-cast.log")) {
+    if let Ok(file) = std::fs::File::create(std::env::temp_dir().join("aeris-desktop.log")) {
         let _ = tracing_subscriber::fmt().with_writer(file).with_ansi(false).try_init();
     }
 
@@ -221,8 +221,8 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([440.0, 570.0])
             .with_min_inner_size([380.0, 500.0])
-            .with_title("NEXUS CAST"),
+            .with_title("AERIS Desktop"),
         ..Default::default()
     };
-    eframe::run_native("NEXUS CAST", options, Box::new(|_cc| Ok(Box::new(NexusCast::default()))))
+    eframe::run_native("AERIS Desktop", options, Box::new(|_cc| Ok(Box::new(AerisDesktop::default()))))
 }
