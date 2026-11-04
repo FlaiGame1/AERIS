@@ -97,6 +97,12 @@ async fn handle_client(
     player: Arc<Mutex<MpvPlayer>>,
     status: mpsc::Sender<String>,
 ) -> Result<()> {
+    // AERIS is a LAN-only receiver. Do not even complete a WebSocket handshake
+    // for public/non-local peers, even if the port was exposed accidentally.
+    if !is_private_ip(peer.ip()) {
+        bail!("Отклонено подключение не из локальной сети: {}", peer.ip());
+    }
+
     let ws = accept_async(stream).await.context("WebSocket handshake failed")?;
     let (mut write, mut read) = ws.split();
     let mut paired = false;
@@ -443,5 +449,39 @@ fn is_private_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || (ip.octets()[0] == 169 && ip.octets()[1] == 254),
         std::net::IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::is_private_ip;
+    use std::net::IpAddr;
+
+    fn ip(value: &str) -> IpAddr {
+        value.parse().expect("valid test IP")
+    }
+
+    #[test]
+    fn accepts_private_and_local_addresses() {
+        for address in [
+            "10.0.0.8",
+            "172.16.0.8",
+            "192.168.1.20",
+            "127.0.0.1",
+            "169.254.1.2",
+            "fc00::1",
+            "fe80::1",
+            "::1",
+        ] {
+            assert!(is_private_ip(ip(address)), "{address} should be local");
+        }
+    }
+
+    #[test]
+    fn rejects_public_addresses() {
+        for address in ["8.8.8.8", "1.1.1.1", "203.0.113.10", "2001:4860:4860::8888"] {
+            assert!(!is_private_ip(ip(address)), "{address} should not be local");
+        }
     }
 }
