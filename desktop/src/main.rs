@@ -25,6 +25,10 @@ struct AerisDesktop {
     connected_device: String,
     playback_position: f64,
     playback_duration: f64,
+    cover_path: String,
+    cover_loaded_path: String,
+    cover_texture: Option<egui::TextureHandle>,
+    background_texture: Option<egui::TextureHandle>,
 }
 
 impl Default for AerisDesktop {
@@ -43,6 +47,10 @@ impl Default for AerisDesktop {
             connected_device: String::new(),
             playback_position: 0.0,
             playback_duration: 0.0,
+            cover_path: String::new(),
+            cover_loaded_path: String::new(),
+            cover_texture: None,
+            background_texture: None,
         }
     }
 }
@@ -95,6 +103,10 @@ impl AerisDesktop {
             loop {
                 match rx.try_recv() {
                     Ok(message) => {
+                        if let Some(path) = message.strip_prefix("COVER_PATH:") {
+                            self.cover_path = path.to_owned();
+                            continue;
+                        }
                         if let Some(payload) = message.strip_prefix("PLAYBACK:") {
                             if let Ok(state) = serde_json::from_str::<serde_json::Value>(payload) {
                                 self.playback_position = state.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
@@ -145,12 +157,16 @@ impl AerisDesktop {
             let side = (available - 64.0).min(390.0).max(190.0);
             let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
             let painter = ui.painter();
-            painter.rect_filled(rect, 28.0, egui::Color32::from_rgb(71, 52, 104));
-            painter.rect_filled(egui::Rect::from_min_max(rect.min + egui::vec2(0.0, side * 0.52), rect.max), 28.0, egui::Color32::from_rgb(37, 63, 83));
-            painter.circle_filled(rect.center(), side * 0.245, egui::Color32::from_rgb(28, 29, 42));
-            painter.circle_filled(rect.center(), side * 0.16, egui::Color32::from_rgb(105, 85, 133));
-            painter.circle_filled(rect.center(), side * 0.035, egui::Color32::from_rgb(231, 215, 246));
-            painter.text(rect.center() + egui::vec2(0.0, side * 0.34), egui::Align2::CENTER_CENTER, "AERIS", egui::FontId::proportional(15.0), egui::Color32::from_white_alpha(190));
+            if let Some(texture) = &self.cover_texture {
+                painter.image(texture.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            } else {
+                painter.rect_filled(rect, 28.0, egui::Color32::from_rgb(71, 52, 104));
+                painter.rect_filled(egui::Rect::from_min_max(rect.min + egui::vec2(0.0, side * 0.52), rect.max), 28.0, egui::Color32::from_rgb(37, 63, 83));
+                painter.circle_filled(rect.center(), side * 0.245, egui::Color32::from_rgb(28, 29, 42));
+                painter.circle_filled(rect.center(), side * 0.16, egui::Color32::from_rgb(105, 85, 133));
+                painter.circle_filled(rect.center(), side * 0.035, egui::Color32::from_rgb(231, 215, 246));
+                painter.text(rect.center() + egui::vec2(0.0, side * 0.34), egui::Align2::CENTER_CENTER, "AERIS", egui::FontId::proportional(15.0), egui::Color32::from_white_alpha(190));
+            }
             ui.add_space(18.0);
 
             let title = if self.track_title.is_empty() { "Ожидание воспроизведения" } else { &self.track_title };
@@ -159,7 +175,7 @@ impl AerisDesktop {
             ui.label(egui::RichText::new(&self.track_artist).size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
             ui.add_space(22.0);
 
-            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 14.0), egui::Sense::hover());
+            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 22.0), egui::Sense::hover());
             let line_y = timeline.center().y;
             let progress = if self.playback_duration > 0.0 { (self.playback_position / self.playback_duration).clamp(0.0, 1.0) as f32 } else { 0.0 };
             let knob_x = timeline.left() + timeline.width() * progress;
@@ -167,7 +183,7 @@ impl AerisDesktop {
             if progress > 0.0 {
                 ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(timeline.left(), line_y - 2.0), egui::pos2(knob_x, line_y + 2.0)), 3.0, egui::Color32::from_rgb(194, 164, 235));
             }
-            ui.painter().circle_filled(egui::pos2(knob_x, line_y), 6.0, egui::Color32::from_rgb(235, 218, 255));
+            ui.painter().circle_filled(egui::pos2(knob_x, line_y), 6.5, egui::Color32::from_rgb(235, 218, 255));
             if response.hovered() {
                 if let Some(pointer) = response.hover_pos() {
                     let x = pointer.x.clamp(timeline.left(), timeline.right());
@@ -239,9 +255,32 @@ impl Drop for AerisDesktop {
 impl eframe::App for AerisDesktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.check_receiver();
+        if !self.cover_path.is_empty() && self.cover_path != self.cover_loaded_path {
+            if let Ok(bytes) = std::fs::read(&self.cover_path) {
+                if let Ok(decoded) = image::load_from_memory(&bytes) {
+                    let cover = decoded.resize_to_fill(720, 720, image::imageops::FilterType::Lanczos3).to_rgba8();
+                    let cover_color = egui::ColorImage::from_rgba_unmultiplied(
+                        [cover.width() as usize, cover.height() as usize], cover.as_raw()
+                    );
+                    self.cover_texture = Some(ctx.load_texture("aeris-track-cover", cover_color, egui::TextureOptions::LINEAR));
+
+                    let blurred = image::imageops::blur(&decoded.resize_to_fill(1000, 1000, image::imageops::FilterType::Triangle), 28.0).to_rgba8();
+                    let background_color = egui::ColorImage::from_rgba_unmultiplied(
+                        [blurred.width() as usize, blurred.height() as usize], blurred.as_raw()
+                    );
+                    self.background_texture = Some(ctx.load_texture("aeris-blurred-background", background_color, egui::TextureOptions::LINEAR));
+                    self.cover_loaded_path = self.cover_path.clone();
+                }
+            }
+        }
         let bg = egui::Color32::from_rgb(24, 22, 32);
         let muted = egui::Color32::from_rgb(173, 163, 190);
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::same(24.0))).show(ctx, |ui| {
+            let panel_rect = ui.max_rect();
+            if let Some(texture) = &self.background_texture {
+                ui.painter().image(texture.id(), panel_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha(72));
+                ui.painter().rect_filled(panel_rect, 0.0, egui::Color32::from_black_alpha(155));
+            }
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("AERIS").size(17.0).strong().color(egui::Color32::from_rgb(216,190,247)));
                 ui.label(egui::RichText::new("MATERIAL 3").size(10.0).strong().color(muted));
