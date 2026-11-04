@@ -1,8 +1,10 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod aeris_protocol;
+mod player;
 
 use eframe::egui;
+use player::PlayerHandle;
 use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 use tokio::sync::Notify;
@@ -13,6 +15,8 @@ struct AerisDesktop {
     ready_rx: Option<mpsc::Receiver<String>>,
     status: String,
     device_name: String,
+    player: PlayerHandle,
+    volume: f32,
 }
 
 impl Default for AerisDesktop {
@@ -23,6 +27,8 @@ impl Default for AerisDesktop {
             ready_rx: None,
             status: "Приёмник остановлен".to_owned(),
             device_name: "AERIS Desktop — этот компьютер".to_owned(),
+            player: PlayerHandle::new(),
+            volume: 0.8,
         }
     }
 }
@@ -31,6 +37,7 @@ impl AerisDesktop {
     fn start_receiver(&mut self) {
         let shutdown = Arc::new(Notify::new());
         let thread_shutdown = shutdown.clone();
+        let player = self.player.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
         let startup_error_tx = ready_tx.clone();
 
@@ -42,7 +49,7 @@ impl AerisDesktop {
                     .build();
                 match runtime {
                     Ok(runtime) => {
-                        if let Err(error) = runtime.block_on(aeris_protocol::run_server(thread_shutdown, ready_tx)) {
+                        if let Err(error) = runtime.block_on(aeris_protocol::run_server(thread_shutdown, ready_tx, player)) {
                             let _ = startup_error_tx.send(format!("Ошибка AERIS Protocol: {error:#}"));
                         }
                     }
@@ -134,7 +141,7 @@ impl eframe::App for AerisDesktop {
                     ui.label(egui::RichText::new("Транслируй. Слушай. Смотри.").size(14.0).color(muted));
                 });
 
-                ui.add_space(28.0);
+                ui.add_space(24.0);
                 egui::Frame::none().fill(panel).rounding(egui::Rounding::same(16.0))
                     .inner_margin(egui::Margin::same(20.0)).show(ui, |ui| {
                         ui.label(egui::RichText::new("УСТРОЙСТВО").size(11.0).strong().color(muted));
@@ -145,37 +152,57 @@ impl eframe::App for AerisDesktop {
                         ui.add_space(18.0);
                         let running = self.receiver_thread.is_some();
                         let button_text = if running { "Остановить сервер" } else { "Запустить сервер" };
-                        if ui.add_sized([ui.available_width(), 46.0],
+                        if ui.add_sized([ui.available_width(), 44.0],
                             egui::Button::new(egui::RichText::new(button_text).size(15.0).strong())
                                 .fill(accent).rounding(egui::Rounding::same(10.0))).clicked() {
                             if running { self.stop_receiver(); } else { self.start_receiver(); }
                         }
                     });
 
-                ui.add_space(18.0);
+                ui.add_space(14.0);
+                egui::Frame::none().fill(panel).rounding(egui::Rounding::same(16.0))
+                    .inner_margin(egui::Margin::same(18.0)).show(ui, |ui| {
+                        ui.label(egui::RichText::new("УПРАВЛЕНИЕ ПЛЕЕРОМ").size(11.0).strong().color(muted));
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("▶ Продолжить").clicked() {
+                                self.status = self.player.resume().unwrap_or_else(|e| e);
+                            }
+                            if ui.button("Ⅱ Пауза").clicked() {
+                                self.status = self.player.pause().unwrap_or_else(|e| e);
+                            }
+                            if ui.button("■ Стоп").clicked() {
+                                self.status = self.player.stop().unwrap_or_else(|e| e);
+                            }
+                        });
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Громкость");
+                            if ui.add(egui::Slider::new(&mut self.volume, 0.0..=1.0).show_value(true)).changed() {
+                                if let Err(error) = self.player.set_volume(self.volume) {
+                                    self.status = error;
+                                }
+                            }
+                        });
+                        ui.label(egui::RichText::new("Аудио воспроизводится внутри AERIS. Видео открывается в системном плеере.")
+                            .size(11.0).color(muted));
+                    });
+
+                ui.add_space(14.0);
                 egui::Frame::none().fill(panel).rounding(egui::Rounding::same(16.0))
                     .inner_margin(egui::Margin::same(18.0)).show(ui, |ui| {
                         ui.label(egui::RichText::new("КАК ПОДКЛЮЧИТЬСЯ").size(11.0).strong().color(muted));
                         ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("01").color(accent).strong());
-                            ui.label(egui::RichText::new("Подключи телефон и ПК к одной Wi-Fi сети").color(egui::Color32::WHITE));
-                        });
+                        ui.label(egui::RichText::new("01  Подключи телефон и ПК к одной Wi-Fi сети").color(egui::Color32::WHITE));
                         ui.add_space(7.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("02").color(accent).strong());
-                            ui.label(egui::RichText::new("Введи адрес и код подключения в плагине").color(egui::Color32::WHITE));
-                        });
+                        ui.label(egui::RichText::new("02  Введи адрес и код подключения в плагине").color(egui::Color32::WHITE));
                         ui.add_space(7.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("03").color(accent).strong());
-                            ui.label(egui::RichText::new("Сначала проверим соединение и команды").color(egui::Color32::WHITE));
-                        });
+                        ui.label(egui::RichText::new("03  Выбери медиа в Telegram и отправь его на ПК").color(egui::Color32::WHITE));
                     });
-                ui.add_space(18.0);
+                ui.add_space(14.0);
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
-                    ui.label(egui::RichText::new("AERIS 0.4 • Передача файлов • Запуск в системном плеере").size(10.0).color(muted));
+                    ui.label(egui::RichText::new("AERIS 0.5 • Встроенное аудио • Управление с телефона").size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -189,8 +216,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([440.0, 570.0])
-            .with_min_inner_size([380.0, 500.0])
+            .with_inner_size([480.0, 700.0])
+            .with_min_inner_size([400.0, 600.0])
             .with_title("AERIS Desktop"),
         ..Default::default()
     };
