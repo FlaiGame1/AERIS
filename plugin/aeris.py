@@ -526,10 +526,10 @@ class AerisPlugin(BasePlugin):
                 self.logger.info(result)
                 BulletinHelper.show_success(result)
             except Exception as error:
-                self.logger.exception("AERIS profile media transfer failed")
+                self.logger.exception("AERIS media transfer failed")
                 BulletinHelper.show_error("Не удалось передать {}: {}".format(label, error))
 
-        threading.Thread(target=work, name="AERIS-profile-transfer", daemon=True).start()
+        threading.Thread(target=work, name="AERIS-media-transfer", daemon=True).start()
 
 
     def _install_player_menu_hook(self):
