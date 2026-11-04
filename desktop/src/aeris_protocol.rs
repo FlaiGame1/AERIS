@@ -728,8 +728,10 @@ where
 
 fn sanitize_name(input: &str) -> String {
     let name = input.rsplit(|c| c == '/' || c == '\\').next().unwrap_or("media.bin");
+    // Keep Unicode letters and numbers (including Cyrillic filenames) while
+    // removing path separators, control characters and Windows-invalid symbols.
     let safe: String = name.chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ' | '(' | ')'))
+        .filter(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ' | '(' | ')'))
         .take(100)
         .collect();
     let safe = safe.trim().trim_matches('.');
@@ -789,6 +791,8 @@ mod tests {
         assert_eq!(super::sanitize_name(r"C:\\Users\\user\\track.mp3"), "track.mp3");
         assert_eq!(super::sanitize_name("..."), "media.bin");
         assert_eq!(super::sanitize_name("bad<>name?.mp4"), "badname.mp4");
+        assert_eq!(super::sanitize_name("Моя музыка.mp3"), "Моя музыка.mp3");
+        assert_eq!(super::sanitize_name("видео 2026.mp4"), "видео 2026.mp4");
     }
 
     #[test]
