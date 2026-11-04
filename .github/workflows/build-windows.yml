@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - "desktop/**"
+      - "plugin/**"
+      - "protocol/**"
+      - "README.md"
       - "licenses/**"
       - ".github/workflows/build-windows.yml"
 
@@ -48,8 +51,13 @@ jobs:
           Run aeris-desktop.exe. This build starts the AERIS Protocol v1
           WebSocket receiver on the private LAN interface at TCP port 45872.
 
-          This is an early development build. Media playback, encrypted
-          transport and persistent device pairing are not implemented yet.
+          Audio formats supported by the bundled AERIS player are played inside
+          the app. Video and unsupported formats are opened by the Windows default player.
+          Phone controls: play, pause, stop, seek and volume for AERIS audio.
+          Pairing code remains valid until the receiver is stopped.
+
+          This is an early development build. WebSocket transport is unencrypted;
+          use only on a trusted private network.
           "@ | Set-Content -Encoding UTF8 "$stage\README.txt"
 
           Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64.zip" -Force
