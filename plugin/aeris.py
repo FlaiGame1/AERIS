@@ -153,12 +153,24 @@ def _open_connection(host, port):
         raise
 
 
+def _device_name():
+    try:
+        from android.os import Build
+        value = str(getattr(Build, "MODEL", "") or "").strip()
+        if value:
+            return value[:48]
+    except Exception:
+        pass
+    return "Android"
+
+
 def _connect(host, port, code, device_token=""):
+    device_name = _device_name()
     if device_token:
         sock = None
         try:
             sock = _open_connection(host, port)
-            paired = _send_msg(sock, "pair", {"token": device_token}, "pair-token")
+            paired = _send_msg(sock, "pair", {"token": device_token, "device_name": device_name}, "pair-token")
             if paired.get("type") == "pair_result" and paired.get("payload", {}).get("paired"):
                 return sock, paired.get("payload", {}).get("token", device_token)
         except Exception:
@@ -167,7 +179,7 @@ def _connect(host, port, code, device_token=""):
 
     sock = _open_connection(host, port)
     try:
-        paired = _send_msg(sock, "pair", {"code": code}, "pair-code")
+        paired = _send_msg(sock, "pair", {"code": code, "device_name": device_name}, "pair-code")
         if paired.get("type") != "pair_result" or not paired.get("payload", {}).get("paired"):
             raise ConnectionError("Неверный или истёкший код сопряжения")
         token = paired.get("payload", {}).get("token")
@@ -307,7 +319,7 @@ def _media_path(message_or_document, account=None):
     )
 def _media_metadata(message):
     """Read visible Telegram audio tags from the selected message/document."""
-    result = {"track_title": "", "track_artist": ""}
+    result = {"track_title": "", "track_artist": "", "cover_base64": ""}
     try:
         owner = getattr(message, "messageOwner", None)
         candidates = [message, owner]
@@ -316,6 +328,32 @@ def _media_metadata(message):
             document = getattr(media, "document", None) if media is not None else None
             if document is not None:
                 candidates.append(document)
+        # Use only a thumbnail already present in Telegram's cache.
+        try:
+            from client_utils import get_file_loader
+            loader = get_file_loader()
+            for candidate in candidates:
+                thumbs = getattr(candidate, "thumbs", None)
+                if thumbs is None:
+                    continue
+                try:
+                    thumb_items = list(thumbs)
+                except Exception:
+                    thumb_items = []
+                for thumb in reversed(thumb_items):
+                    try:
+                        thumb_file = loader.getPathToAttach(thumb)
+                        thumb_path = _file_object_path(thumb_file)
+                        if thumb_path and os.path.getsize(thumb_path) <= 36 * 1024:
+                            with open(thumb_path, "rb") as cover_file:
+                                result["cover_base64"] = base64.b64encode(cover_file.read()).decode("ascii")
+                            break
+                    except Exception:
+                        continue
+                if result["cover_base64"]:
+                    break
+        except Exception:
+            pass
         for candidate in candidates:
             attributes = getattr(candidate, "attributes", None)
             if attributes is None:
@@ -358,6 +396,7 @@ def _transfer(host, port, code, path, device_token="", metadata=None):
             "sha256": digest.hexdigest(),
             "track_title": (metadata or {}).get("track_title", ""),
             "track_artist": (metadata or {}).get("track_artist", ""),
+            "cover_base64": (metadata or {}).get("cover_base64", ""),
         }, "begin")
         if response.get("type") != "media_ready":
             raise RuntimeError("ПК не подготовил приём файла")
