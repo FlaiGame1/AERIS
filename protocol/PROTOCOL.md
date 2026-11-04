@@ -60,8 +60,9 @@ All commands require a paired session.
 | set_volume | volume from 0.0 to 1.0 | Set volume |
 | volume_delta | delta in percentage points | Change volume |
 | ping | empty | Connection check |
+| get_status | empty | Return current media title, position, duration, pause state, volume and idle state |
 
-Successful player commands return command_result with payload.success = true. A playback-engine failure returns an error message.
+Successful player commands return command_result with payload.success = true. A playback-engine failure returns an error message. `get_status` returns `playback_status` with the current mpv properties in its payload.
 
 ## 7. Desktop playback engine
 
