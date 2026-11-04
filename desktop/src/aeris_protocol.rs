@@ -460,7 +460,7 @@ async fn handle_browser_upload(
     expires_at: Instant,
     player: Arc<Mutex<MpvPlayer>>,
     status: mpsc::Sender<String>,
- ) -> Result<()> {
+) -> Result<()> {
     if !is_private_ip(peer.ip()) {
         send_http_json(&mut stream, "403 Forbidden", json!({"success":false,"error":"AERIS принимает только подключения из локальной сети"})).await?;
         bail!("Отклонено браузерное подключение не из локальной сети: {}", peer.ip());
