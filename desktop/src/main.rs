@@ -185,19 +185,25 @@ impl AerisDesktop {
             ui.label(egui::RichText::new(&self.track_artist).size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
             ui.add_space(22.0);
 
-            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 22.0), egui::Sense::hover());
-            let line_y = timeline.center().y;
-            let progress = if self.playback_duration > 0.0 { (self.playback_position / self.playback_duration).clamp(0.0, 1.0) as f32 } else { 0.0 };
+            // Give the knob enough vertical room and derive both the rail and
+            // the knob from the exact same center line.
+            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 28.0), egui::Sense::hover());
             let radius = 7.0;
+            let rail_center = timeline.center();
+            let line_y = rail_center.y;
+            let progress = if self.playback_duration > 0.0 {
+                (self.playback_position / self.playback_duration).clamp(0.0, 1.0) as f32
+            } else { 0.0 };
             let track_left = timeline.left() + radius;
             let track_right = timeline.right() - radius;
             let track_width = (track_right - track_left).max(1.0);
-            let knob_x = track_left + track_width * progress;
-            ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(track_left, line_y - 2.0), egui::pos2(track_right, line_y + 2.0)), 3.0, egui::Color32::from_rgb(91, 82, 107));
+            let knob_center = egui::pos2(track_left + track_width * progress, rail_center.y);
+            let rail = egui::Rect::from_center_size(rail_center, egui::vec2(track_width, 4.0));
+            ui.painter().rect_filled(rail, 2.0, egui::Color32::from_rgb(91, 82, 107));
             if progress > 0.0 {
-                ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(track_left, line_y - 2.0), egui::pos2(knob_x, line_y + 2.0)), 3.0, egui::Color32::from_rgb(194, 164, 235));
+                ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(track_left, line_y - 2.0), egui::pos2(knob_center.x, line_y + 2.0)), 3.0, egui::Color32::from_rgb(194, 164, 235));
             }
-            ui.painter().circle_filled(egui::pos2(knob_x, line_y), radius, egui::Color32::from_rgb(235, 218, 255));
+            ui.painter().circle_filled(knob_center, radius, egui::Color32::from_rgb(235, 218, 255));
             if response.hovered() {
                 if let Some(pointer) = response.hover_pos() {
                     let x = pointer.x.clamp(track_left, track_right);
