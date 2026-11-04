@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn temporary_upload_guard_preserves_completed_file() {
-        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", uuid::Uuid::new_v4()));
         std::fs::write(&path, b"complete").expect("write test file");
         let mut guard = super::TemporaryFileGuard { path: path.clone(), keep: false };
         guard.keep = true;
