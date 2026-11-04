@@ -1,25 +1,29 @@
-use crate::player::PlayerHandle;
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashSet,
     fs::{self, File},
     io::{Read, Write},
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, mpsc},
+    time::Duration,
 };
-use tokio::{net::{TcpListener, TcpStream}, sync::Notify};
+use tokio::{net::{TcpListener, TcpStream}, sync::{Mutex, Notify}, time::Instant};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use uuid::Uuid;
+
+use crate::mpv_player::MpvPlayer;
 
 const PROTOCOL_VERSION: u8 = 1;
 const PORT: u16 = 45872;
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_MEDIA_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 1024 * 1024;
+const PAIRING_LIFETIME: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Deserialize)]
 struct Envelope {
@@ -43,11 +47,7 @@ struct IncomingMedia {
     mime_type: String,
 }
 
-pub async fn run_server(
-    shutdown: Arc<Notify>,
-    status: mpsc::Sender<String>,
-    player: PlayerHandle,
-) -> Result<()> {
+pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> Result<()> {
     let ip = local_ip_address::local_ip().context("Не удалось определить IP-адрес локальной сети")?;
     if !is_private_ip(ip) {
         bail!("Определён непубличный LAN-адрес: {ip}. Сервер не будет запускаться.");
@@ -55,9 +55,14 @@ pub async fn run_server(
     let listener = TcpListener::bind(SocketAddr::new(ip, PORT))
         .await
         .with_context(|| format!("Не удалось открыть порт {PORT}"))?;
+
     let pairing_code = Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
+    let expires_at = Instant::now() + PAIRING_LIFETIME;
+    let paired_tokens = Arc::new(Mutex::new(load_paired_tokens()));
+    let player = Arc::new(Mutex::new(MpvPlayer::new()));
+
     let _ = status.send(format!(
-        "Приёмник запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует до остановки сервера"
+        "AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"
     ));
 
     loop {
@@ -70,9 +75,10 @@ pub async fn run_server(
                 let (stream, peer) = accepted.context("Ошибка входящего TCP-подключения")?;
                 let code = pairing_code.clone();
                 let status = status.clone();
+                let tokens = paired_tokens.clone();
                 let player = player.clone();
                 tokio::spawn(async move {
-                    if let Err(error) = handle_client(stream, peer, code, status, player).await {
+                    if let Err(error) = handle_client(stream, peer, code, expires_at, tokens, player, status).await {
                         tracing::warn!("AERIS client {peer} disconnected: {error:#}");
                     }
                 });
@@ -86,8 +92,10 @@ async fn handle_client(
     stream: TcpStream,
     peer: SocketAddr,
     pairing_code: String,
+    expires_at: Instant,
+    paired_tokens: Arc<Mutex<HashSet<String>>>,
+    player: Arc<Mutex<MpvPlayer>>,
     status: mpsc::Sender<String>,
-    player: PlayerHandle,
 ) -> Result<()> {
     let ws = accept_async(stream).await.context("WebSocket handshake failed")?;
     let (mut write, mut read) = ws.split();
@@ -117,31 +125,59 @@ async fn handle_client(
                     "hello" => {
                         send_json(&mut write, json!({
                             "protocol":"aeris","version":1,"type":"hello_ack","id":env.id,
-                            "payload":{"server_name":"AERIS Desktop","protocol_version":1,
+                            "payload":{
+                                "server_name":"AERIS Desktop",
+                                "protocol_version":1,
                                 "pairing_required":true,
-                                "pairing_expires_in":null}
+                                "pairing_expires_in":expires_at.saturating_duration_since(Instant::now()).as_secs()
+                            }
                         })).await?;
                     }
                     "pair" => {
-                        let code = env.payload.get("code").and_then(Value::as_str).unwrap_or("");
-                        if code != pairing_code {
-                            send_json(&mut write, json!({
-                                "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
-                                "payload":{"paired":false,"reason":"invalid_or_expired_code"}
-                            })).await?;
+                        if let Some(token) = env.payload.get("token").and_then(Value::as_str) {
+                            let valid = paired_tokens.lock().await.contains(token);
+                            if valid {
+                                paired = true;
+                                let _ = status.send(format!("Повторно подключено устройство: {peer}"));
+                                send_json(&mut write, json!({
+                                    "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
+                                    "payload":{"paired":true,"session":"remembered","token":token}
+                                })).await?;
+                            } else {
+                                send_json(&mut write, json!({
+                                    "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
+                                    "payload":{"paired":false,"reason":"invalid_device_token"}
+                                })).await?;
+                            }
                         } else {
-                            paired = true;
-                            let _ = status.send(format!("Подключено устройство: {peer}"));
-                            send_json(&mut write, json!({
-                                "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
-                                "payload":{"paired":true,"session":"temporary"}
-                            })).await?;
+                            let code = env.payload.get("code").and_then(Value::as_str).unwrap_or("");
+                            if Instant::now() > expires_at || code != pairing_code {
+                                send_json(&mut write, json!({
+                                    "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
+                                    "payload":{"paired":false,"reason":"invalid_or_expired_code"}
+                                })).await?;
+                            } else {
+                                let token = Uuid::new_v4().simple().to_string();
+                                {
+                                    let mut tokens = paired_tokens.lock().await;
+                                    tokens.insert(token.clone());
+                                    if let Err(error) = save_paired_tokens(&tokens) {
+                                        tokens.remove(&token);
+                                        send_error(&mut write, env.id, "pairing_storage_failed", &format!("Не удалось сохранить сопряжение: {error}")).await?;
+                                        continue;
+                                    }
+                                }
+                                paired = true;
+                                let _ = status.send(format!("Подключено новое устройство: {peer}"));
+                                send_json(&mut write, json!({
+                                    "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
+                                    "payload":{"paired":true,"session":"remembered","token":token}
+                                })).await?;
+                            }
                         }
                     }
                     "ping" => {
-                        send_json(&mut write, json!({
-                            "protocol":"aeris","version":1,"type":"pong","id":env.id,"payload":{}
-                        })).await?;
+                        send_json(&mut write, json!({"protocol":"aeris","version":1,"type":"pong","id":env.id,"payload":{}})).await?;
                     }
                     "begin_media" => {
                         if !paired {
@@ -166,8 +202,13 @@ async fn handle_client(
                         let path = dir.join(format!("{}-{}", Uuid::new_v4(), safe));
                         let file = File::create(&path)?;
                         incoming = Some(IncomingMedia {
-                            path, file, expected_size: size, received_size: 0,
-                            expected_hash: hash, file_name: safe, mime_type: mime.to_string(),
+                            path,
+                            file,
+                            expected_size: size,
+                            received_size: 0,
+                            expected_hash: hash,
+                            file_name: safe,
+                            mime_type: mime.to_string(),
                         });
                         let _ = status.send(format!("Получение файла: {name} ({:.1} МБ)", size as f64 / 1048576.0));
                         send_json(&mut write, json!({
@@ -205,101 +246,87 @@ async fn handle_client(
                             continue;
                         }
 
-                        let extension = transfer.path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-                        let audio = matches!(extension.as_str(), "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "aiff" | "aif" | "alac");
-                        let playback = if audio {
-                            match player.play_file(transfer.path.clone()) {
-                                Ok(()) => {
-                                    let _ = status.send(format!("Воспроизводится: {}", transfer.file_name));
-                                    "playing_in_aeris"
-                                }
-                                Err(audio_error) => {
-                                    let fallback_path = transfer.path.clone();
-                                    match tokio::task::spawn_blocking(move || open::that(fallback_path)).await {
-                                        Ok(Ok(())) => {
-                                            let _ = status.send(format!(
-                                                "Встроенный декодер не поддержал файл ({}); открыт системный плеер",
-                                                audio_error
-                                            ));
-                                            "opened_external_player"
-                                        }
-                                        Ok(Err(open_error)) => {
-                                            let _ = status.send(format!(
-                                                "Не удалось воспроизвести аудио: {}; системный плеер: {}",
-                                                audio_error, open_error
-                                            ));
-                                            "audio_playback_failed"
-                                        }
-                                        Err(join_error) => {
-                                            let _ = status.send(format!(
-                                                "Ошибка запуска системного плеера: {}", join_error
-                                            ));
-                                            "audio_playback_failed"
-                                        }
-                                    }
-                                }
+                        let playback = match player.lock().await.play_file(&transfer.path).await {
+                            Ok(()) => {
+                                let _ = status.send(format!("Воспроизведение: {} · {}", transfer.file_name, transfer.mime_type));
+                                "playing"
                             }
-                        } else {
-                            let path = transfer.path.clone();
-                            match tokio::task::spawn_blocking(move || open::that(path)).await {
-                                Ok(Ok(())) => {
-                                    let _ = status.send(format!("Открыто во внешнем плеере: {}", transfer.file_name));
-                                    "opened_external_player"
-                                }
-                                Ok(Err(error)) => {
-                                    let _ = status.send(format!("Файл принят, ошибка открытия: {error}"));
-                                    "received_open_failed"
-                                }
-                                Err(error) => {
-                                    let _ = status.send(format!("Ошибка запуска системного плеера: {error}"));
-                                    "received_open_failed"
-                                }
+                            Err(error) => {
+                                let _ = status.send(format!("Файл принят, но mpv не запустился: {error:#}"));
+                                "playback_failed"
                             }
                         };
-                        let _ = status.send(format!("Файл принят: {} · {}", transfer.file_name, transfer.mime_type));
                         send_json(&mut write, json!({
                             "protocol":"aeris","version":1,"type":"media_complete","id":env.id,
                             "payload":{"received":true,"playback":playback,"file_name":transfer.file_name}
                         })).await?;
-                    }
-                    "play" | "pause" | "stop" | "seek" | "set_volume" => {
-                        if !paired {
-                            send_error(&mut write, env.id, "pairing_required", "Сначала выполните сопряжение").await?;
-                            continue;
-                        }
-                        let result = match env.kind.as_str() {
-                            "play" => player.resume(),
-                            "pause" => player.pause(),
-                            "stop" => player.stop(),
-                            "seek" => {
-                                let position = env.payload.get("position").and_then(Value::as_f64).unwrap_or(-1.0);
-                                player.seek(position)
-                            }
-                            "set_volume" => {
-                                let volume = env.payload.get("volume").and_then(Value::as_f64).unwrap_or(-1.0);
-                                player.set_volume(volume as f32)
-                            }
-                            _ => unreachable!(),
-                        };
-                        match result {
-                            Ok(()) => {
-                                let _ = status.send(format!("Команда с телефона: {}", env.kind));
-                                send_json(&mut write, json!({
-                                    "protocol":"aeris","version":1,"type":"command_result","id":env.id,
-                                    "payload":{"success":true,"command":env.kind}
-                                })).await?;
-                            }
-                            Err(error) => send_error(&mut write, env.id, "player_command_failed", &error).await?,
-                        }
                     }
                     "cancel_media" => {
                         if let Some(transfer) = incoming.take() {
                             drop(transfer.file);
                             let _ = fs::remove_file(transfer.path);
                         }
-                        send_json(&mut write, json!({
-                            "protocol":"aeris","version":1,"type":"media_cancelled","id":env.id,"payload":{}
-                        })).await?;
+                        send_json(&mut write, json!({"protocol":"aeris","version":1,"type":"media_cancelled","id":env.id,"payload":{}})).await?;
+                    }
+                    "play" | "pause" | "toggle_pause" | "stop" | "seek" | "seek_relative" | "set_volume" | "volume_delta" => {
+                        if !paired {
+                            send_error(&mut write, env.id, "pairing_required", "Сначала выполните сопряжение").await?;
+                            continue;
+                        }
+                        let result = match env.kind.as_str() {
+                            "play" => player.lock().await.play().await,
+                            "pause" => player.lock().await.pause().await,
+                            "toggle_pause" => player.lock().await.toggle_pause().await,
+                            "stop" => player.lock().await.stop().await,
+                            "seek" => {
+                                let position = env.payload.get("position").and_then(Value::as_f64);
+                                match position.filter(|v| v.is_finite() && (0.0..=86400.0).contains(v)) {
+                                    Some(value) => player.lock().await.seek(value).await,
+                                    None => {
+                                        send_error(&mut write, env.id, "invalid_seek", "Позиция должна быть от 0 до 86400 секунд").await?;
+                                        continue;
+                                    }
+                                }
+                            }
+                            "seek_relative" => {
+                                let offset = env.payload.get("offset").and_then(Value::as_f64);
+                                match offset.filter(|v| v.is_finite() && (-3600.0..=3600.0).contains(v)) {
+                                    Some(value) => player.lock().await.seek_relative(value).await,
+                                    None => {
+                                        send_error(&mut write, env.id, "invalid_seek", "Смещение должно быть от -3600 до 3600 секунд").await?;
+                                        continue;
+                                    }
+                                }
+                            }
+                            "set_volume" => {
+                                let volume = env.payload.get("volume").and_then(Value::as_f64);
+                                match volume.filter(|v| v.is_finite() && (0.0..=1.0).contains(v)) {
+                                    Some(value) => player.lock().await.set_volume(value * 100.0).await,
+                                    None => {
+                                        send_error(&mut write, env.id, "invalid_volume", "Громкость должна быть от 0.0 до 1.0").await?;
+                                        continue;
+                                    }
+                                }
+                            }
+                            "volume_delta" => {
+                                let delta = env.payload.get("delta").and_then(Value::as_f64);
+                                match delta.filter(|v| v.is_finite() && (-100.0..=100.0).contains(v)) {
+                                    Some(value) => player.lock().await.change_volume(value).await,
+                                    None => {
+                                        send_error(&mut write, env.id, "invalid_volume", "Изменение громкости должно быть от -100 до 100").await?;
+                                        continue;
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        };
+                        match result {
+                            Ok(()) => send_json(&mut write, json!({
+                                "protocol":"aeris","version":1,"type":"command_result","id":env.id,
+                                "payload":{"success":true,"command":env.kind}
+                            })).await?,
+                            Err(error) => send_error(&mut write, env.id, "player_error", &format!("{error:#}")).await?,
+                        }
                     }
                     other => send_error(&mut write, env.id, "unknown_message_type", &format!("Неизвестная команда: {other}")).await?,
                 }
@@ -324,15 +351,11 @@ async fn handle_client(
                 transfer.file.write_all(&bytes)?;
                 transfer.received_size += bytes.len() as u64;
                 if transfer.received_size % (8 * 1024 * 1024) < bytes.len() as u64 {
-                    let _ = status.send(format!(
-                        "Получено {:.1} / {:.1} МБ",
-                        transfer.received_size as f64 / 1048576.0,
-                        transfer.expected_size as f64 / 1048576.0
-                    ));
+                    let _ = status.send(format!("Получено {:.1} / {:.1} МБ", transfer.received_size as f64 / 1048576.0, transfer.expected_size as f64 / 1048576.0));
                 }
             }
             Message::Ping(data) => write.send(Message::Pong(data)).await?,
-            Message::Close(_) => { write.flush().await?; break; },
+            Message::Close(_) => { write.flush().await?; break; }
             _ => {}
         }
     }
@@ -344,15 +367,43 @@ async fn handle_client(
     Ok(())
 }
 
+fn token_store_path() -> PathBuf {
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("AERIS").join("paired_devices.json")
+}
+
+fn load_paired_tokens() -> HashSet<String> {
+    fs::read(token_store_path())
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
+}
+
+fn save_paired_tokens(tokens: &HashSet<String>) -> Result<()> {
+    let path = token_store_path();
+    let parent = path.parent().context("Не удалось определить папку сопряжённых устройств")?;
+    fs::create_dir_all(parent)?;
+    let temporary = path.with_extension("json.tmp");
+    let mut values: Vec<&String> = tokens.iter().collect();
+    values.sort();
+    fs::write(&temporary, serde_json::to_vec_pretty(&values)?)?;
+    fs::rename(&temporary, &path).or_else(|_| {
+        fs::copy(&temporary, &path)?;
+        fs::remove_file(&temporary)
+    })?;
+    Ok(())
+}
+
 async fn send_error<S>(sink: &mut S, id: Option<String>, code: &str, message: &str) -> Result<()>
 where
     S: futures_util::Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    send_json(sink, json!({
-        "protocol":"aeris","version":1,"type":"error","id":id,
-        "payload":{"code":code,"message":message}
-    })).await
+    send_json(sink, json!({"protocol":"aeris","version":1,"type":"error","id":id,"payload":{"code":code,"message":message}})).await
 }
 
 async fn send_json<S>(sink: &mut S, value: Value) -> Result<()>
@@ -365,10 +416,11 @@ where
 }
 
 fn sanitize_name(input: &str) -> String {
-    let name = input.rsplit(['/', '\\\\']).next().unwrap_or("media.bin");
+    let name = input.rsplit(|c| c == '/' || c == '\\').next().unwrap_or("media.bin");
     let safe: String = name.chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ' | '(' | ')'))
-        .take(100).collect();
+        .take(100)
+        .collect();
     let safe = safe.trim().trim_matches('.');
     if safe.is_empty() { "media.bin".into() } else { safe.into() }
 }
