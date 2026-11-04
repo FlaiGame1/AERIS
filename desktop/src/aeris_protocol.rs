@@ -38,8 +38,22 @@ struct Envelope {
     payload: Value,
 }
 
+struct TemporaryFileGuard {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl Drop for TemporaryFileGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 struct IncomingMedia {
     path: PathBuf,
+    cleanup: TemporaryFileGuard,
     file: File,
     expected_size: u64,
     received_size: u64,
@@ -237,7 +251,8 @@ async fn handle_client(
                         let path = dir.join(format!("{}-{}", Uuid::new_v4(), safe));
                         let file = File::create(&path)?;
                         incoming = Some(IncomingMedia {
-                            path,
+                            path: path.clone(),
+                            cleanup: TemporaryFileGuard { path, keep: false },
                             file,
                             expected_size: size,
                             received_size: 0,
@@ -281,6 +296,9 @@ async fn handle_client(
                             continue;
                         }
 
+                        // Once the complete file passes size and SHA-256 checks, keep it
+                        // even if the external player cannot open it.
+                        transfer.cleanup.keep = true;
                         let playback = match player.lock().await.play_file(&transfer.path).await {
                             Ok(()) => {
                                 let _ = status.send(format!("Воспроизведение: {} · {}", transfer.file_name, transfer.mime_type));
@@ -531,6 +549,7 @@ async fn handle_browser_upload(
     let directory = std::env::temp_dir().join("AERIS").join("Received");
     fs::create_dir_all(&directory)?;
     let path = directory.join(format!("{}-{}", Uuid::new_v4(), file_name));
+    let mut cleanup = TemporaryFileGuard { path: path.clone(), keep: false };
     let mut file = File::create(&path)?;
     let mut hasher = Sha256::new();
     let mut received = 0u64;
@@ -556,6 +575,8 @@ async fn handle_browser_upload(
     file.flush()?;
     drop(file);
     let digest = format!("{:x}", hasher.finalize());
+    // The upload is complete; preserve it even if playback fails.
+    cleanup.keep = true;
 
     match player.lock().await.play_file(&path).await {
         Ok(()) => {
@@ -752,5 +773,24 @@ mod tests {
         assert_eq!(super::query_parameter("code=ABC123&name=My%20video%20%281%29.mp4", "name").as_deref(), Some("My video (1).mp4"));
         assert_eq!(super::query_parameter("code=ABC123&name=a+b.mp3", "name").as_deref(), Some("a b.mp3"));
         assert_eq!(super::query_parameter("code=ABC123", "name"), None);
+    }
+
+    #[test]
+    fn temporary_upload_guard_removes_incomplete_file() {
+        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", Uuid::new_v4()));
+        fs::write(&path, b"partial").expect("write test file");
+        drop(super::TemporaryFileGuard { path: path.clone(), keep: false });
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn temporary_upload_guard_preserves_completed_file() {
+        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", Uuid::new_v4()));
+        fs::write(&path, b"complete").expect("write test file");
+        let mut guard = super::TemporaryFileGuard { path: path.clone(), keep: false };
+        guard.keep = true;
+        drop(guard);
+        assert!(path.exists());
+        fs::remove_file(path).expect("remove test file");
     }
 }
