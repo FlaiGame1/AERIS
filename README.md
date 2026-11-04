@@ -24,7 +24,8 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Audio and video playback through the bundled mpv engine.
 - Phone controls: pause/resume, stop, seek backward/forward and volume up/down.
 - Remote playback status: current title, playback position, duration and pause state.
-- Received files are stored under the Windows temporary AERIS folder.\n- Standalone browser uploader on the PC (port 45873) for sending files from Android without Telegram.
+- Received files are stored under the Windows temporary AERIS folder.
+- Standalone browser uploader on the PC (port 45873) for sending files from Android without Telegram.
 
 ### Development status
 
