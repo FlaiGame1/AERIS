@@ -777,8 +777,8 @@ mod tests {
 
     #[test]
     fn temporary_upload_guard_removes_incomplete_file() {
-        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", Uuid::new_v4()));
-        fs::write(&path, b"partial").expect("write test file");
+        let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", uuid::Uuid::new_v4()));
+        std::fs::write(&path, b"partial").expect("write test file");
         drop(super::TemporaryFileGuard { path: path.clone(), keep: false });
         assert!(!path.exists());
     }
@@ -786,11 +786,11 @@ mod tests {
     #[test]
     fn temporary_upload_guard_preserves_completed_file() {
         let path = std::env::temp_dir().join(format!("aeris-test-{}.tmp", Uuid::new_v4()));
-        fs::write(&path, b"complete").expect("write test file");
+        std::fs::write(&path, b"complete").expect("write test file");
         let mut guard = super::TemporaryFileGuard { path: path.clone(), keep: false };
         guard.keep = true;
         drop(guard);
         assert!(path.exists());
-        fs::remove_file(path).expect("remove test file");
+        std::fs::remove_file(path).expect("remove test file");
     }
 }
