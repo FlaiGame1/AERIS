@@ -181,7 +181,7 @@ impl eframe::App for AerisDesktop {
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
-                    ui.label(egui::RichText::new(&format!("AERIS {} • mpv + браузерная загрузка", env!("CARGO_PKG_VERSION"))).size(10.0).color(muted));
+                    ui.label(egui::RichText::new(format!("AERIS {} • mpv + браузерная загрузка", env!("CARGO_PKG_VERSION"))).size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
