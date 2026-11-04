@@ -1,12 +1,11 @@
 use anyhow::{Context, Result, bail};
 use serde_json::{json, Value};
 use std::{
-    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, net::windows::named_pipe::{ClientOptions, NamedPipeClient}, time::{sleep, timeout}};
+use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, net::windows::named_pipe::{ClientOptions, NamedPipeClient}, time::{sleep, timeout}};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -95,8 +94,8 @@ impl MpvPlayer {
             let mut reader = BufReader::new(pipe);
             let mut line = String::new();
             reader.read_line(&mut line).await?;
-            anyhow::Ok(line)
-        }).await.context("mpv не ответил на команду за 3 секунды")??;
+            Ok::<String, std::io::Error>(line)
+        }).await.context("mpv не ответил на команду за 3 секунды")?.context("Не удалось прочитать ответ mpv")?;
         if response.trim().is_empty() {
             bail!("mpv закрыл IPC-канал без ответа");
         }
