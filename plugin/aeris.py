@@ -351,7 +351,7 @@ class AerisPlugin(BasePlugin):
         def work():
             sock = None
             try:
-                sock, new_token = _connect(host, port, code, device_token)
+                sock, new_token = _connect(host, port, code, token)
                 self.set_setting("device_token", new_token)
                 if command:
                     response = _send_msg(sock, command, payload or {}, "control")
@@ -427,7 +427,7 @@ class AerisPlugin(BasePlugin):
 
         def work():
             try:
-                result, new_token = _transfer(host, port, code, path, device_token)
+                result, new_token = _transfer(host, port, code, path, token)
                 self.set_setting("device_token", new_token)
                 self.logger.info(result)
                 BulletinHelper.show_success(result)
