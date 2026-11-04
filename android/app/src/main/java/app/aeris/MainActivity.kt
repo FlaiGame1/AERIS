@@ -141,9 +141,9 @@ class MainActivity : Activity() {
                     while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) }
                 }
                 val hash = digest.digest().joinToString("") { "%02x".format(it) }
-                val ws = connect(h, p, c)
+                val session = connect(h, p, c)
                 try {
-                    val ready = request(ws, "begin_media", JSONObject()
+                    val ready = session.request("begin_media", JSONObject()
                         .put("file_name", name).put("mime_type", contentResolver.getType(uri) ?: "application/octet-stream")
                         .put("size", size).put("sha256", hash))
                     if (ready.optString("type") != "media_ready") error("ПК не подготовил приём файла.")
@@ -153,15 +153,15 @@ class MainActivity : Activity() {
                         while (true) {
                             val n = input.read(buffer)
                             if (n < 0) break
-                            if (!ws.send(ByteString.of(*buffer.copyOf(n)))) error("Соединение прервано во время передачи.")
-                            while (ws.queueSize() > 4L * CHUNK) Thread.sleep(30)
+                            if (!session.sendBinary(ByteString.of(*buffer.copyOf(n)))) error("Соединение прервано во время передачи.")
+                            while (session.queuedBytes() > 4L * CHUNK) Thread.sleep(30)
                         }
                     }
-                    val done = request(ws, "finish_media", JSONObject())
+                    val done = session.request("finish_media", JSONObject())
                     if (done.optString("type") != "media_complete" || done.optJSONObject("payload")?.optString("playback") != "playing")
                         error("Файл принят, но воспроизведение не запустилось.")
                     show("Готово: $name")
-                } finally { ws.close(1000, "done") }
+                } finally { session.close() }
             } catch (e: Exception) { show("Ошибка: ${e.message ?: e.javaClass.simpleName}") }
         }.start()
     }
@@ -170,72 +170,74 @@ class MainActivity : Activity() {
         val h = host.text.toString().trim(); val p = port.text.toString().trim(); val c = code.text.toString().trim().uppercase()
         Thread {
             try {
-                val ws = connect(h, p, c)
+                val session = connect(h, p, c)
                 try {
-                    val response = request(ws, type, payload)
+                    val response = session.request(type, payload)
                     if (type == "get_status") show(response.optJSONObject("payload")?.toString(2) ?: "Нет состояния")
                     else if (response.optString("type") != "command_result") error("ПК не подтвердил команду.")
                     else show("Команда выполнена: $type")
-                } finally { ws.close(1000, "done") }
+                } finally { session.close() }
             } catch (e: Exception) { show("Ошибка: ${e.message ?: e.javaClass.simpleName}") }
         }.start()
     }
 
-    private fun connect(address: String, portText: String, pairingCode: String): WebSocket {
+    private fun connect(address: String, portText: String, pairingCode: String): SocketSession {
         require(address.isNotBlank()) { "Укажи IP компьютера." }
         val token = prefs.getString("device_token", "") ?: ""
-        val socket = SocketSession()
-        val ws = client.newWebSocket(Request.Builder().url("ws://$address:${portText.toInt()}/ws").build(), socket)
-        socket.awaitOpen()
-        val hello = socket.request(ws, "hello", JSONObject())
+        val session = SocketSession()
+        val request = Request.Builder().url("ws://$address:${portText.toInt()}/ws").build()
+        session.webSocket = client.newWebSocket(request, session)
+        session.awaitOpen()
+        val hello = session.request("hello", JSONObject())
         if (hello.optString("type") != "hello_ack") error("AERIS Desktop не ответил на hello.")
-        val pairPayload = if (token.isNotBlank()) JSONObject().put("token", token) else JSONObject().put("code", pairingCode)
-        var paired = socket.request(ws, "pair", pairPayload)
+        var paired = if (token.isNotBlank()) session.request("pair", JSONObject().put("token", token))
+            else session.request("pair", JSONObject().put("code", pairingCode))
         if (paired.optJSONObject("payload")?.optBoolean("paired") != true && token.isNotBlank()) {
-            paired = socket.request(ws, "pair", JSONObject().put("code", pairingCode))
+            paired = session.request("pair", JSONObject().put("code", pairingCode))
         }
         if (paired.optJSONObject("payload")?.optBoolean("paired") != true) error("Не удалось выполнить сопряжение. Проверь код на ПК.")
         val newToken = paired.optJSONObject("payload")?.optString("token")
         if (!newToken.isNullOrBlank()) prefs.edit().putString("device_token", newToken).apply()
-        socket.session = ws
-        socket.queue = socket.messages
-        return ws
+        return session
     }
-
-    private fun request(ws: WebSocket, type: String, payload: JSONObject): JSONObject {
-        val body = JSONObject().put("protocol", "aeris").put("version", 1).put("type", type)
-            .put("id", System.nanoTime().toString()).put("payload", payload)
-        if (!ws.send(body.toString())) error("Не удалось отправить команду.")
-        val response = activeSession?.takeMessage() ?: error("Нет активной WebSocket-сессии")
-        if (response.optString("type") == "error") error(response.optJSONObject("payload")?.optString("message") ?: "Ошибка AERIS")
-        return response
-    }
-
-    private var activeSession: SocketSession? = null
 
     private inner class SocketSession : WebSocketListener() {
         val messages = LinkedBlockingQueue<String>()
-        var session: WebSocket? = null
-        var queue: LinkedBlockingQueue<String>? = null
+        lateinit var webSocket: WebSocket
         private val opened = java.util.concurrent.CountDownLatch(1)
         private var failure: String? = null
-        override fun onOpen(webSocket: WebSocket, response: Response) { session = webSocket; activeSession = this; opened.countDown() }
+
+        override fun onOpen(webSocket: WebSocket, response: Response) { opened.countDown() }
         override fun onMessage(webSocket: WebSocket, text: String) { messages.offer(text) }
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { failure = t.message; opened.countDown(); messages.offer(JSONObject().put("type", "transport_error").put("message", failure).toString()) }
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            failure = t.message
+            opened.countDown()
+            messages.offer(JSONObject().put("type", "transport_error").put("message", failure).toString())
+        }
+
         fun awaitOpen() {
             if (!opened.await(10, TimeUnit.SECONDS)) error("Тайм-аут подключения.")
             if (failure != null) error(failure ?: "Ошибка WebSocket")
         }
-        fun request(ws: WebSocket, type: String, payload: JSONObject): JSONObject {
+
+        fun request(type: String, payload: JSONObject): JSONObject {
             val body = JSONObject().put("protocol", "aeris").put("version", 1).put("type", type)
                 .put("id", System.nanoTime().toString()).put("payload", payload)
-            if (!ws.send(body.toString())) error("Не удалось отправить запрос.")
+            if (!webSocket.send(body.toString())) error("Не удалось отправить запрос.")
             return takeMessage()
         }
-        fun takeMessage(): JSONObject {
-            val raw = messages.poll(15, TimeUnit.SECONDS) ?: error("ПК не ответил за 15 секунд.")
+
+        fun sendBinary(bytes: ByteString): Boolean = webSocket.send(bytes)
+        fun queuedBytes(): Long = webSocket.queueSize()
+        fun close() { webSocket.close(1000, "done") }
+
+        private fun takeMessage(): JSONObject {
+            val raw = messages.poll(30, TimeUnit.SECONDS) ?: error("ПК не ответил за 30 секунд.")
             val result = JSONObject(raw)
             if (result.optString("type") == "transport_error") error(result.optString("message"))
+            if (result.optString("type") == "error") {
+                error(result.optJSONObject("payload")?.optString("message") ?: "Ошибка AERIS")
+            }
             return result
         }
     }
