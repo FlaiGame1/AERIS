@@ -60,6 +60,8 @@ struct IncomingMedia {
     expected_hash: String,
     file_name: String,
     mime_type: String,
+    track_title: String,
+    track_artist: String,
 }
 
 pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> Result<()> {
@@ -79,12 +81,21 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     let paired_tokens = Arc::new(Mutex::new(load_paired_tokens()));
     let player = Arc::new(Mutex::new(MpvPlayer::new()));
 
+    let mut playback_tick = tokio::time::interval(Duration::from_millis(500));
+
     let _ = status.send(format!(
         "AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nЗагрузка из браузера: http://{ip}:{UPLOAD_PORT}\nКод подключения: {pairing_code}\nКод действует 3 минуты"
     ));
 
     loop {
         tokio::select! {
+            _ = playback_tick.tick() => {
+                if let Ok(playback) = player.lock().await.playback_status().await {
+                    if playback.get("idle").and_then(Value::as_bool) != Some(true) {
+                        let _ = status.send(format!("PLAYBACK:{}", playback));
+                    }
+                }
+            }
             _ = shutdown.notified() => {
                 let _ = status.send("Сервер AERIS остановлен".into());
                 break;
@@ -259,6 +270,8 @@ async fn handle_client(
                             expected_hash: hash,
                             file_name: safe,
                             mime_type: mime.to_string(),
+                            track_title: env.payload.get("track_title").and_then(Value::as_str).unwrap_or("").to_string(),
+                            track_artist: env.payload.get("track_artist").and_then(Value::as_str).unwrap_or("").to_string(),
                         });
                         let _ = status.send(format!("Получение файла: {name} ({:.1} МБ)", size as f64 / 1048576.0));
                         send_json(&mut write, json!({
@@ -301,7 +314,9 @@ async fn handle_client(
                         transfer.cleanup.keep = true;
                         let playback = match player.lock().await.play_file(&transfer.path).await {
                             Ok(()) => {
-                                let _ = status.send(format!("Воспроизведение: {} · {}", transfer.file_name, transfer.mime_type));
+                                let title = if transfer.track_title.is_empty() { transfer.file_name.clone() } else { transfer.track_title.clone() };
+                                let artist = if transfer.track_artist.is_empty() { transfer.mime_type.clone() } else { transfer.track_artist.clone() };
+                                let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
                                 "playing"
                             }
                             Err(error) => {
