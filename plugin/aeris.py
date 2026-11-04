@@ -63,14 +63,14 @@ def _connect(host,port,code):
  s=socket.create_connection((host,port),timeout=10);s.settimeout(60)
  try:
   key=base64.b64encode(os.urandom(16)).decode()
-  req="GET /ws HTTP/1.1\\r\\nHost: {}:{}\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Key: {}\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n".format(host,port,key)
+  req="GET /ws HTTP/1.1\r\nHost: {}:{}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {}\r\nSec-WebSocket-Version: 13\r\n\r\n".format(host,port,key)
   s.sendall(req.encode());resp=b""
-  while b"\\r\\n\\r\\n" not in resp:
+  while b"\r\n\r\n" not in resp:
    x=s.recv(1024)
    if not x:raise ConnectionError("Нет ответа WebSocket")
    resp+=x
    if len(resp)>8192:raise ValueError("Некорректный ответ WebSocket")
-  if b" 101 " not in resp.split(b"\\r\\n",1)[0]:raise ConnectionError("AERIS отклонил WebSocket")
+  if b" 101 " not in resp.split(b"\r\n",1)[0]:raise ConnectionError("AERIS отклонил WebSocket")
   if _send_msg(s,"hello").get("type")!="hello_ack":raise ConnectionError("Неожиданный ответ AERIS")
   p=_send_msg(s,"pair",{"code":code})
   if p.get("type")!="pair_result" or not p.get("payload",{}).get("paired"):raise ConnectionError("Неверный или истёкший код сопряжения")
