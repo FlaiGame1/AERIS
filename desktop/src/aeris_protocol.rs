@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use base64::Engine as _;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -184,7 +185,8 @@ async fn handle_client(
                             let valid = paired_tokens.lock().await.contains(token);
                             if valid {
                                 paired = true;
-                                let _ = status.send(format!("Повторно подключено устройство: {peer}"));
+                                let device_name = env.payload.get("device_name").and_then(Value::as_str).unwrap_or("Android").chars().take(48).collect::<String>();
+                                let _ = status.send(format!("Повторно подключено устройство: {device_name} ({peer})"));
                                 send_json(&mut write, json!({
                                     "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
                                     "payload":{"paired":true,"session":"remembered","token":token}
@@ -214,7 +216,8 @@ async fn handle_client(
                                     }
                                 }
                                 paired = true;
-                                let _ = status.send(format!("Подключено новое устройство: {peer}"));
+                                let device_name = env.payload.get("device_name").and_then(Value::as_str).unwrap_or("Android").chars().take(48).collect::<String>();
+                                let _ = status.send(format!("Подключено новое устройство: {device_name} ({peer})"));
                                 send_json(&mut write, json!({
                                     "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
                                     "payload":{"paired":true,"session":"remembered","token":token}
@@ -261,6 +264,21 @@ async fn handle_client(
                         fs::create_dir_all(&dir)?;
                         let path = dir.join(format!("{}-{}", Uuid::new_v4(), safe));
                         let file = File::create(&path)?;
+                        if let Some(encoded_cover) = env.payload.get("cover_base64").and_then(Value::as_str) {
+                            if encoded_cover.len() <= 48 * 1024 {
+                                if let Ok(cover_bytes) = base64::engine::general_purpose::STANDARD.decode(encoded_cover) {
+                                    if !cover_bytes.is_empty() && cover_bytes.len() <= 36 * 1024 {
+                                        let cover_dir = std::env::temp_dir().join("AERIS").join("Covers");
+                                        if fs::create_dir_all(&cover_dir).is_ok() {
+                                            let cover_path = cover_dir.join(format!("{}.img", Uuid::new_v4()));
+                                            if fs::write(&cover_path, &cover_bytes).is_ok() {
+                                                let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         incoming = Some(IncomingMedia {
                             path: path.clone(),
                             cleanup: TemporaryFileGuard { path, keep: false },
