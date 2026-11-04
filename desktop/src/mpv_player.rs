@@ -39,7 +39,12 @@ impl MpvPlayer {
                 bail!("Не найден mpv.exe. Проверь, что папка mpv находится рядом с AERIS Desktop.");
             }
             let mut command = Command::new(&self.exe_path);
+            let log_path = std::env::temp_dir().join("AERIS").join("mpv.log");
+            if let Some(parent) = log_path.parent() {
+                std::fs::create_dir_all(parent).context("Не удалось создать папку логов AERIS")?;
+            }
             command
+                .arg(format!("--log-file={}", log_path.to_string_lossy()))
                 .arg("--no-config")
                 .arg("--idle=yes")
                 .arg("--force-window=no")
