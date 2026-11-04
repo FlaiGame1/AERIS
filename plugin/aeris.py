@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -179,29 +179,35 @@ def _connect(host, port, code, device_token=""):
         raise
 
 
-def _media_path(message, account=None):
+def _file_object_path(file_object):
+    if file_object is None:
+        return None
+    if hasattr(file_object, "getAbsolutePath"):
+        path = str(file_object.getAbsolutePath())
+    elif hasattr(file_object, "getPath"):
+        path = str(file_object.getPath())
+    else:
+        path = os.fspath(str(file_object))
+    if os.path.isfile(path) and os.path.getsize(path) > 0:
+        return os.path.abspath(path)
+    return None
+
+
+def _media_path(message_or_document, account=None):
     from client_utils import get_file_loader
-    owner = getattr(message, "messageOwner", None)
+    owner = getattr(message_or_document, "messageOwner", None)
     loader = get_file_loader(account) if account is not None else get_file_loader()
-    for obj in (message, owner):
+    for obj in (message_or_document, owner):
         if obj is None:
             continue
-        try:
-            file_object = loader.getPathToMessage(obj)
-            if file_object is None:
-                continue
-            # SDK/client builds differ: some return java.io.File, others a
-            # path-like value. Accept both without assuming one Java wrapper.
-            if hasattr(file_object, "getAbsolutePath"):
-                path = str(file_object.getAbsolutePath())
-            elif hasattr(file_object, "getPath"):
-                path = str(file_object.getPath())
-            else:
-                path = os.fspath(str(file_object))
-            if os.path.isfile(path) and os.path.getsize(path) > 0:
-                return os.path.abspath(path)
-        except Exception:
-            pass
+        for method_name in ("getPathToMessage", "getPathToAttach"):
+            try:
+                file_object = getattr(loader, method_name)(obj)
+                path = _file_object_path(file_object)
+                if path:
+                    return path
+            except Exception:
+                pass
     raise FileNotFoundError("Файл не найден в кэше Telegram. Сначала полностью скачай видео или аудио.")
 
 
@@ -251,7 +257,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.3 loaded")
+        self.logger.info("AERIS 0.3.4 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -299,7 +305,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.3", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.4", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -436,7 +442,7 @@ class AerisPlugin(BasePlugin):
             if owner is None:
                 continue
             candidates.append(owner)
-            for field in ("music", "profileMusic", "profile_music", "audio", "media", "message"):
+            for field in ("saved_music", "savedMusic", "music", "profileMusic", "profile_music", "audio", "media", "message"):
                 try:
                     value = getattr(owner, field, None)
                     if value is not None:
@@ -450,7 +456,7 @@ class AerisPlugin(BasePlugin):
                 return
             except Exception:
                 continue
-        BulletinHelper.show_error("Клиент не предоставил файл музыки профиля через API меню. Открой сам трек в сообщении/медиаплеере и используй «Воспроизвести через AERIS».")
+        BulletinHelper.show_error("Не удалось найти загруженный файл профильной музыки. Сначала открой трек в Telegram и дождись его загрузки.")
 
     def _on_message_menu(self, context):
         self.logger.info("AERIS menu context keys: {}".format(list(context.keys())))
