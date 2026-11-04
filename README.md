@@ -8,98 +8,110 @@
 
 ## English
 
-AERIS is an open-source project for sending media from Android to a Windows PC over a local network — without relying on Google Chromecast.
+AERIS sends media from Android to a Windows PC over the local network. It does not use Google Cast or route media through Telegram servers.
 
-The project has two components in one repository:
+The repository contains two components:
 
-- **AERIS Desktop** — a Windows receiver and media player, written in Rust.
-- **AERIS Plugin** — a Python plugin for AyuGram / exteraGram, designed to send media from Telegram and control playback.
+- **AERIS Desktop** — Windows receiver and lightweight audio player, written in Rust.
+- **AERIS Plugin** — Python plugin for AyuGram / exteraGram that sends cached Telegram media and controls playback.
 
-The components communicate through the custom **AERIS Protocol**.
+Both components communicate through the AERIS Protocol over a direct WebSocket connection on the local network (default TCP port **45872**).
 
-### Planned features
+### Current capabilities
 
-- Pair an Android device with a Windows PC.
-- Transfer Telegram media files directly over the local network in verified chunks (up to 512 MiB).
-- Open received media with the Windows default player. Native in-app playback and remote controls are planned next.
-- Display playback status on the phone.
-- Portable Windows package with required runtime files.
-- Plugin and desktop app distributed together through GitHub Releases.
+- Pair a phone with the Windows receiver using a six-character code.
+- Transfer cached media in 1 MiB chunks, up to 512 MiB per file.
+- Verify file size and SHA-256 before playback.
+- Play supported audio formats inside AERIS Desktop (MP3, WAV, FLAC, OGG, Opus, M4A/AAC and AIFF/ALAC where supported by the decoder).
+- Open video and unsupported formats with the Windows default application.
+- Control AERIS audio from the phone: resume, pause, stop, seek and volume.
+- Control playback locally from the Desktop window.
+
+### Telegram availability and network behavior
+
+The AERIS connection is **phone ↔ PC over your private LAN**. It does not pass through Telegram, Telegram proxies, or Telegram servers. Telegram blocking or an outage therefore does not by itself interrupt an established AERIS LAN connection.
+
+There is one separate limitation: the plugin currently reads media from Telegram's local cache. The media must already be downloaded on the phone. If Telegram cannot download a file because of blocking or connectivity problems, AERIS cannot transfer that file until it is available locally. Direct downloading of uncached Telegram media is not implemented.
+
+### Pairing and security
+
+The pairing code is generated when the Desktop receiver starts and remains valid until the receiver is stopped. Restarting the receiver generates a new code. This allows the plugin to reconnect for each playback-control action without requiring a new code every three minutes.
+
+The current transport is unencrypted ws://. Use AERIS only on a trusted private network. Do not expose port 45872 to the public internet. Encrypted transport, persistent device credentials and pairing revocation remain future work.
+
+### Current limitations
+
+- Native in-app playback currently targets audio. Video is transferred and opened by the Windows default media application; remote video controls are not yet integrated.
+- The plugin can only transfer files already present in Telegram's local cache.
+- The built-in Telegram media-player overflow menu and profile music integration are not implemented.
+- Playback status synchronization and a persistent device-management screen are planned.
 
 ### Repository structure
 
-```text
-AERIS/
-├── desktop/          # Rust Windows receiver
-├── plugin/           # Python AyuGram / exteraGram plugin
-├── protocol/         # Shared protocol specification
-├── docs/             # Architecture and developer documentation
-├── licenses/         # Third-party license notices
-└── .github/workflows # CI and release builds
-```
+    AERIS/
+    ├── desktop/          Rust Windows receiver and audio player
+    ├── plugin/           Python AyuGram / exteraGram plugin
+    ├── protocol/         Shared protocol specification
+    ├── docs/             Architecture and developer documentation
+    ├── licenses/         Third-party license notices
+    └── .github/workflows CI and release builds
 
-### Development status
+### Development
 
-AERIS is in early development. The Windows app now starts the first native AERIS Protocol v1 WebSocket receiver with a temporary pairing code. The plugin has connection settings and a pairing/ping test. The plugin now adds a Telegram message context-menu action, attempts to resolve the message media from Telegram local storage, and transfers it in 1 MiB chunks. Desktop verifies file size and SHA-256, then opens the received file with the Windows default media application. This is an early integration: automatic downloading of media not yet cached, native AERIS playback UI, remote player controls, the built-in media-player overflow menu, encrypted transport and persistent pairing are not implemented yet.
-
-The old Google Cast prototype remains in the repository as inactive reference code, but it is no longer used by the active desktop application. Development builds use unencrypted WebSocket and must only be tested on a trusted private network.
-
-### Releases
-
-Official releases will include:
-- **Windows:** portable ZIP containing AERIS Desktop and its required runtime files.
-- **Android:** AERIS plugin package/source compatible with the documented AyuGram / exteraGram SDK versions.
-
-### Contributing
-
-Issues, bug reports and contributions are welcome. Please include your Windows version, Android client version and relevant logs when reporting connection problems.
+AERIS is an early preview project. Bug reports and contributions are welcome. When reporting issues, include the Windows version, Android client and plugin versions, the AERIS Desktop log, and whether the media was fully downloaded in Telegram.
 
 ---
 
 ## Русский
 
-AERIS — открытый проект для передачи видео и другого медиаконтента с Android на компьютер с Windows через локальную сеть — без зависимости от Google Chromecast.
+AERIS передаёт медиа с Android на компьютер с Windows через локальную сеть. Проект не использует Google Cast и не отправляет медиа через серверы Telegram.
 
-В одном репозитории находятся два компонента:
+В репозитории находятся два компонента:
 
-- **AERIS Desktop** — приложение-приёмник и медиаплеер для Windows, написанное на Rust.
-- **AERIS Plugin** — Python-плагин для AyuGram / exteraGram, предназначенный для отправки медиа из Telegram и управления воспроизведением.
+- **AERIS Desktop** — приёмник для Windows и лёгкий аудиоплеер на Rust.
+- **AERIS Plugin** — Python-плагин для AyuGram / exteraGram, который отправляет закэшированные медиа из Telegram и управляет воспроизведением.
 
-Компоненты взаимодействуют через собственный **протокол AERIS**.
+Компоненты общаются через протокол AERIS по прямому WebSocket-соединению внутри локальной сети (стандартный TCP-порт **45872**).
 
-### Планируемые возможности
+### Что уже работает
 
-- Подключение Android-устройства к компьютеру.
-- Передача поддерживаемых ссылок на медиа и метаданных: названия, обложки и MIME-типа.
-- Управление воспроизведением прямо из Telegram: запуск, пауза, остановка, перемотка и громкость.
-- Отображение состояния воспроизведения на телефоне.
-- Портативная версия приложения для Windows со всеми необходимыми файлами.
-- Публикация приложения и плагина вместе в GitHub Releases.
+- Сопряжение телефона с компьютером по шестизначному коду.
+- Передача закэшированных медиа блоками по 1 МиБ, размер файла — до 512 МиБ.
+- Проверка размера файла и SHA-256 перед воспроизведением.
+- Воспроизведение поддерживаемых аудиоформатов внутри AERIS Desktop (MP3, WAV, FLAC, OGG, Opus, M4A/AAC и AIFF/ALAC при поддержке декодером).
+- Передача видео и неподдерживаемых форматов в стандартное приложение Windows.
+- Управление аудио с телефона: продолжить, пауза, остановка, перемотка и громкость.
+- Локальное управление плеером из окна Desktop.
+
+### Блокировка Telegram и работа сети
+
+Соединение AERIS строится **напрямую между телефоном и ПК по локальной сети**. Оно не проходит через Telegram, Telegram Proxy или серверы Telegram. Поэтому блокировка или сбой Telegram сами по себе не должны прерывать уже установленное LAN-соединение AERIS.
+
+Но есть отдельное ограничение: плагин пока получает медиа из локального кэша Telegram. Файл должен быть предварительно загружен на телефон. Если Telegram не может скачать его из-за блокировки или проблем с интернетом, AERIS не сможет передать этот файл, пока он не появится локально. Автоматическая загрузка незакэшированных файлов пока не реализована.
+
+### Сопряжение и безопасность
+
+Код сопряжения генерируется при запуске Desktop-приёмника и действует до его остановки. При перезапуске создаётся новый код. Благодаря этому плагин может заново подключаться для каждой команды управления, не требуя вводить новый код каждые три минуты.
+
+Текущий транспорт использует незашифрованный ws://. Используй AERIS только в доверенной частной сети. Не открывай порт 45872 в публичный интернет. Шифрование, постоянные учётные данные устройств и отзыв сопряжения остаются задачами на будущее.
+
+### Текущие ограничения
+
+- Встроенное воспроизведение пока предназначено для аудио. Видео передаётся и открывается стандартным приложением Windows; удалённое управление видеоплеером ещё не подключено.
+- Плагин может передавать только файлы, уже находящиеся в локальном кэше Telegram.
+- Интеграция в меню трёх точек встроенного медиаплеера Telegram и в музыку профиля пока не реализована.
+- Синхронизация состояния воспроизведения и отдельный экран управления подключёнными устройствами запланированы на будущее.
 
 ### Структура репозитория
 
-```text
-AERIS/
-├── desktop/          # Приёмник для Windows на Rust
-├── plugin/           # Python-плагин AyuGram / exteraGram
-├── protocol/         # Спецификация общего протокола
-├── docs/             # Архитектура и документация разработчика
-├── licenses/         # Лицензии сторонних компонентов
-└── .github/workflows # CI и сборки релизов
-```
+    AERIS/
+    ├── desktop/          Приёмник и аудиоплеер Windows на Rust
+    ├── plugin/           Python-плагин AyuGram / exteraGram
+    ├── protocol/         Спецификация общего протокола
+    ├── docs/             Архитектура и документация разработчика
+    ├── licenses/         Уведомления о лицензиях сторонних компонентов
+    └── .github/workflows CI и сборки релизов
 
-### Состояние разработки
+### Разработка
 
-AERIS находится на ранней стадии разработки. Приложение для Windows уже запускает первую реализацию собственного протокола AERIS v1 на WebSocket с временным кодом сопряжения. В плагине появились настройки подключения и проверка сопряжения/ping. Плагин добавляет действие в контекстное меню сообщения Telegram, пытается получить файл из локального хранилища Telegram и передаёт его блоками по 1 МиБ. Desktop проверяет размер и SHA-256, затем открывает файл в стандартном медиаприложении Windows. Это ранняя интеграция: автоматическая загрузка ещё не закэшированных файлов, встроенный плеер AERIS, удалённое управление, меню трёх точек встроенного медиаплеера, шифрование и постоянное сопряжение пока не реализованы.
-
-Старый прототип Google Cast оставлен в репозитории как справочный код, но активное приложение его больше не использует. Тестовая версия использует незашифрованный WebSocket и предназначена только для доверенной домашней сети.
-
-### Релизы
-
-В официальных релизах будут публиковаться:
-- **Windows:** ZIP-архив с AERIS Desktop и необходимыми файлами.
-- **Android:** пакет/исходный файл плагина AERIS для документированных версий SDK AyuGram / exteraGram.
-
-### Участие в проекте
-
-Приветствуются сообщения об ошибках, предложения и вклад в разработку. При описании проблем с подключением указывайте версию Windows, версию Android-клиента и соответствующие журналы.
+AERIS пока находится на стадии раннего preview. Приветствуются сообщения об ошибках и вклад в разработку. При описании проблемы укажи версию Windows, Android-клиента и плагина, приложи лог AERIS Desktop и уточни, был ли файл полностью загружен в Telegram.
