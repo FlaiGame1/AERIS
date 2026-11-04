@@ -487,7 +487,10 @@ async fn handle_browser_upload(
     let mut request = Vec::new();
     let mut buffer = [0u8; 16 * 1024];
     let header_end = loop {
-        let count = stream.read(&mut buffer).await.context("Не удалось прочитать HTTP-запрос")?;
+        let count = tokio::time::timeout(Duration::from_secs(60), stream.read(&mut buffer))
+            .await
+            .context("Таймаут ожидания HTTP-заголовков браузера")?
+            .context("Не удалось прочитать HTTP-запрос")?;
         if count == 0 {
             bail!("Браузер закрыл соединение до отправки заголовков");
         }
@@ -508,12 +511,29 @@ async fn handle_browser_upload(
     let method = request_parts.next().unwrap_or_default();
     let target = request_parts.next().unwrap_or("/");
     let mut content_length = None;
+    let mut content_length_seen = false;
+    let mut ambiguous_http_framing = false;
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
             if name.eq_ignore_ascii_case("content-length") {
+                if content_length_seen {
+                    ambiguous_http_framing = true;
+                }
+                content_length_seen = true;
                 content_length = value.trim().parse::<u64>().ok();
+            } else if name.eq_ignore_ascii_case("transfer-encoding") {
+                // Chunked requests are not supported by this small single-request
+                // receiver. Reject them rather than guessing the request body length.
+                ambiguous_http_framing = true;
             }
         }
+    }
+    if ambiguous_http_framing {
+        send_http_json(&mut stream, "400 Bad Request", json!({
+            "success":false,
+            "error":"Некорректные или неподдерживаемые HTTP-заголовки загрузки."
+        })).await?;
+        return Ok(());
     }
 
     if method == "GET" && (target == "/" || target.starts_with("/?")) {
@@ -561,7 +581,10 @@ async fn handle_browser_upload(
         received += first_count as u64;
     }
     while received < size {
-        let count = stream.read(&mut buffer).await.context("Ошибка при получении файла из браузера")?;
+        let count = tokio::time::timeout(Duration::from_secs(60), stream.read(&mut buffer))
+            .await
+            .context("Таймаут ожидания данных файла из браузера")?
+            .context("Ошибка при получении файла из браузера")?;
         if count == 0 {
             drop(file);
             let _ = fs::remove_file(&path);
