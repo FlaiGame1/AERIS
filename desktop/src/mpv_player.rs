@@ -5,7 +5,7 @@ use std::{
     process::{Child, Command, Stdio},
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, net::windows::named_pipe::{Client, ClientOptions}, time::sleep};
+use tokio::{io::AsyncWriteExt, net::windows::named_pipe::{ClientOptions, NamedPipeClient}, time::sleep};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -25,7 +25,7 @@ impl MpvPlayer {
         Self { child: None, pipe_path, exe_path: locate_mpv() }
     }
 
-    async fn connect(&mut self) -> Result<Client> {
+    async fn connect(&mut self) -> Result<NamedPipeClient> {
         let exited = self.child.as_mut()
             .map(|child| child.try_wait().map(|status| status.is_some()))
             .transpose()?
