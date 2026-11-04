@@ -20,7 +20,7 @@ The active implementation includes:
 
 Desktop listens on the detected private LAN address at TCP port 45872. The first pairing uses a six-character code displayed by Desktop. The plugin then stores a random device token; Desktop persists the token in %APPDATA%\AERIS\paired_devices.json.
 
-The transport is currently unencrypted ws://. Pairing tokens are bearer credentials and are stored locally without encryption. Use AERIS only on a trusted private network. Do not expose port 45872 to the public internet. Removing a device token from the desktop paired-devices file revokes that device.
+The transport is currently unencrypted ws://. Pairing tokens are bearer credentials and are stored locally without encryption. Use AERIS only on a trusted private network. Do not expose ports 45872 or 45873 to the public internet. Removing a device token from the desktop paired-devices file revokes that device.
 
 The pairing code expires three minutes after the receiver starts. Already paired devices can reconnect using their saved token.
 
@@ -43,9 +43,11 @@ For subsequent connections, pair contains a token instead of the short-lived cod
 
 After pairing, the plugin sends begin_media with file_name, mime_type, size and sha256. Desktop replies media_ready. The plugin sends binary WebSocket frames of at most 1 MiB, then sends finish_media. Desktop verifies the exact byte count and SHA-256, saves the file under %TEMP%\AERIS\Received, and asks mpv to play it.
 
-The maximum media size is 512 MiB. The plugin currently resolves media only from the Telegram client's local cache. Media must be downloaded in Telegram first. A separate Android file picker / standalone sender is planned so AERIS can work without Telegram.
+The maximum media size is 512 MiB. The Telegram plugin currently resolves media only from the Telegram client's local cache. Media sent through Telegram must be downloaded first. When Telegram is unavailable, use the standalone browser upload described in section 6; a native Android companion app remains future work.
 
-## 6. Browser upload (Telegram-independent fallback)\n\nDesktop also serves a small upload page over HTTP on TCP port 45873. Open `http://<PC-LAN-IP>:45873` from the phone browser, enter the six-character pairing code, choose a local audio/video file and upload it. The file is streamed directly to the PC, saved under `%TEMP%\\AERIS\\Received`, and passed to mpv. The upload endpoint checks the same short-lived pairing code and enforces the 512 MiB size limit.\n\nThis path does not require Telegram to be installed, logged in or reachable. Both devices must still be on the same LAN, and the Windows firewall must allow private-network traffic to TCP ports 45872 and 45873. The HTTP upload page is unencrypted; use only a trusted private network.\n\n## 7. Playback commands
+## 6. Browser upload (Telegram-independent fallback)
+
+Desktop also serves a small upload page over HTTP on TCP port 45873. Open `http://<PC-LAN-IP>:45873` from the phone browser, enter the six-character pairing code, choose a local audio/video file and upload it. The file is streamed directly to the PC, saved under `%TEMP%\\AERIS\\Received`, and passed to mpv. The upload endpoint checks the same short-lived pairing code and enforces the 512 MiB size limit.\n\nThis path does not require Telegram to be installed, logged in or reachable. Both devices must still be on the same LAN, and the Windows firewall must allow private-network traffic to TCP ports 45872 and 45873. The HTTP upload page is unencrypted; use only a trusted private network.\n\n## 7. Playback commands
 
 All commands require a paired session.
 
@@ -71,7 +73,7 @@ AERIS Desktop launches the bundled mpv.exe on the first playback request and con
 ## 9. Current limitations
 
 - Telegram media must already be downloaded and present in the app cache.
-- A standalone Android file picker and independent Android sender are not implemented yet.
+- A native standalone Android app is not implemented yet; the browser upload page is the current Telegram-independent option.
 - The player uses a separate mpv playback window rather than an embedded AERIS video surface.
 - Transport encryption, device management UI, transfer resume and token revocation UI are future work.
 - Playback is limited to files supported by the bundled mpv build.
