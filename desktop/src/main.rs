@@ -147,7 +147,7 @@ impl AerisDesktop {
                     ui.painter().text(bubble.center(), egui::Align2::CENTER_CENTER, "00:00", egui::FontId::proportional(11.0), egui::Color32::from_rgb(42, 32, 56));
                 }
             }
-            ui.horizontal().with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new("00:00").size(11.0).color(egui::Color32::from_rgb(190,181,204)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new("--:--").size(11.0).color(egui::Color32::from_rgb(190,181,204)));
@@ -209,7 +209,7 @@ impl eframe::App for AerisDesktop {
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::same(24.0))).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("AERIS").size(17.0).strong().color(egui::Color32::from_rgb(216,190,247)));
-                ui.label(egui::RichText::new("MATERIAL 3").size(10.0).strong().tracking(1.5).color(muted));
+                ui.label(egui::RichText::new("MATERIAL 3").size(10.0).strong().color(muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let state = if self.receiver_thread.is_some() { "● ПРИЁМНИК АКТИВЕН" } else { "○ НЕ ПОДКЛЮЧЕНО" };
                     ui.label(egui::RichText::new(state).size(10.0).strong().color(muted));
