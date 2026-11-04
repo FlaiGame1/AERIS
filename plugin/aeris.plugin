@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -188,9 +188,18 @@ def _media_path(message, account=None):
             continue
         try:
             file_object = loader.getPathToMessage(obj)
-            path = str(file_object.getAbsolutePath())
-            if os.path.isfile(path):
-                return path
+            if file_object is None:
+                continue
+            # SDK/client builds differ: some return java.io.File, others a
+            # path-like value. Accept both without assuming one Java wrapper.
+            if hasattr(file_object, "getAbsolutePath"):
+                path = str(file_object.getAbsolutePath())
+            elif hasattr(file_object, "getPath"):
+                path = str(file_object.getPath())
+            else:
+                path = os.fspath(str(file_object))
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return os.path.abspath(path)
         except Exception:
             pass
     raise FileNotFoundError("Файл не найден в кэше Telegram. Сначала полностью скачай видео или аудио.")
@@ -242,7 +251,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.2 loaded")
+        self.logger.info("AERIS 0.3.3 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -280,7 +289,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.2", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.3", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
