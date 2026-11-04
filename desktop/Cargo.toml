@@ -19,6 +19,7 @@ tokio-tungstenite = "0.26"
 url = "2"
 sha2 = "0.10"
 open = "5"
+rodio = "0.21"
 
 [profile.release]
 opt-level = 2
