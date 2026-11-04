@@ -11,7 +11,8 @@ on:
       - "licenses/**"
       - ".github/workflows/build-windows.yml"
   push:
-    branches: [main, feature/native-player-and-remote-control]
+    branches: [main, feature/native-player-and-remote-control, feature/standalone-lan-uploader-v2]
+    tags: ["v*"]
     paths:
       - "desktop/**"
       - "protocol/**"
@@ -20,10 +21,10 @@ on:
       - ".github/workflows/build-windows.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: aeris-desktop-windows-build
+  group: aeris-desktop-windows-build-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -50,6 +51,9 @@ jobs:
         run: |
           python -m py_compile ../plugin/aeris.py
           python -c "from pathlib import Path; assert Path('../plugin/aeris.py').read_bytes() == Path('../plugin/aeris.plugin').read_bytes(), 'plugin package is out of sync'"
+
+      - name: Test AERIS Desktop
+        run: cargo test --release --target x86_64-pc-windows-msvc
 
       - name: Download mpv runtime
         shell: pwsh
@@ -84,7 +88,7 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\licenses\MPV-RUNTIME-NOTICE.txt" "$stage\licenses" -Force
           Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
           @"
-          AERIS Desktop 0.5.1 preview
+          AERIS Desktop 1.0.0
 
           Run aeris-desktop.exe. The first media transfer starts the bundled
           mpv playback engine. Audio and video playback are handled by mpv.
@@ -93,9 +97,10 @@ jobs:
           The Android plugin pairs once using the six-character code. A
           device token is then stored on this PC and reused for later sessions.
           The phone can play, pause, resume, stop, seek, change volume and request playback status.
+          A browser uploader is available at http://<PC-LAN-IP>:45873 for direct phone-to-PC file transfer without Telegram.
 
           AERIS uses an unencrypted WebSocket connection on the private LAN.
-          Use only a trusted home network. Do not expose port 45872 to the internet.
+          Use only a trusted home network. Do not expose ports 45872 or 45873 to the internet.
 
           Third-party runtime:
           mpv source: $env:MPV_SOURCE
@@ -109,11 +114,19 @@ jobs:
             Copy-Item $license.FullName $destination -Force
           }
 
-          Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64.zip" -Force
+          Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64-1.0.0.zip" -Force
 
       - name: Upload portable Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: AERIS-Desktop-windows-x64
-          path: dist/AERIS-Desktop-windows-x64.zip
+          name: AERIS-Desktop-windows-x64-1.0.0
+          path: dist/AERIS-Desktop-windows-x64-1.0.0.zip
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AERIS 1.0.0
+          generate_release_notes: true
+          files: dist/AERIS-Desktop-windows-x64-1.0.0.zip

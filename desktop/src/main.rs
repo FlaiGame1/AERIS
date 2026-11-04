@@ -172,11 +172,16 @@ impl eframe::App for AerisDesktop {
                             ui.label(egui::RichText::new("03").color(accent).strong());
                             ui.label(egui::RichText::new("После первого сопряжения телефон запоминается").color(egui::Color32::WHITE));
                         });
+                        ui.add_space(7.0);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("04").color(accent).strong());
+                            ui.label(egui::RichText::new("Если Telegram недоступен — открой браузерную загрузку из блока устройства").color(egui::Color32::WHITE));
+                        });
                     });
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
-                    ui.label(egui::RichText::new("AERIS 0.5.1 • mpv в комплекте • Управление с телефона").size(10.0).color(muted));
+                    ui.label(egui::RichText::new(format!("AERIS {} • mpv + браузерная загрузка", env!("CARGO_PKG_VERSION"))).size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -190,8 +195,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([440.0, 570.0])
-            .with_min_inner_size([380.0, 500.0])
+            .with_inner_size([460.0, 640.0])
+            .with_min_inner_size([400.0, 560.0])
             .with_title("AERIS Desktop"),
         ..Default::default()
     };
