@@ -41,6 +41,16 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Android plugin
+        run: |
+          python -m py_compile ../plugin/aeris.py
+          python -c "from pathlib import Path; assert Path('../plugin/aeris.py').read_bytes() == Path('../plugin/aeris.plugin').read_bytes(), 'plugin package is out of sync'"
+
       - name: Download mpv runtime
         shell: pwsh
         run: |
