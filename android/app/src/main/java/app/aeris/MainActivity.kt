@@ -185,20 +185,25 @@ class MainActivity : Activity() {
         require(address.isNotBlank()) { "Укажи IP компьютера." }
         val token = prefs.getString("device_token", "") ?: ""
         val session = SocketSession()
-        val request = Request.Builder().url("ws://$address:${portText.toInt()}/ws").build()
-        session.webSocket = client.newWebSocket(request, session)
-        session.awaitOpen()
-        val hello = session.request("hello", JSONObject())
-        if (hello.optString("type") != "hello_ack") error("AERIS Desktop не ответил на hello.")
-        var paired = if (token.isNotBlank()) session.request("pair", JSONObject().put("token", token))
-            else session.request("pair", JSONObject().put("code", pairingCode))
-        if (paired.optJSONObject("payload")?.optBoolean("paired") != true && token.isNotBlank()) {
-            paired = session.request("pair", JSONObject().put("code", pairingCode))
+        try {
+            val request = Request.Builder().url("ws://$address:${portText.toInt()}/ws").build()
+            session.webSocket = client.newWebSocket(request, session)
+            session.awaitOpen()
+            val hello = session.request("hello", JSONObject())
+            if (hello.optString("type") != "hello_ack") error("AERIS Desktop не ответил на hello.")
+            var paired = if (token.isNotBlank()) session.request("pair", JSONObject().put("token", token))
+                else session.request("pair", JSONObject().put("code", pairingCode))
+            if (paired.optJSONObject("payload")?.optBoolean("paired") != true && token.isNotBlank()) {
+                paired = session.request("pair", JSONObject().put("code", pairingCode))
+            }
+            if (paired.optJSONObject("payload")?.optBoolean("paired") != true) error("Не удалось выполнить сопряжение. Проверь код на ПК.")
+            val newToken = paired.optJSONObject("payload")?.optString("token")
+            if (!newToken.isNullOrBlank()) prefs.edit().putString("device_token", newToken).apply()
+            return session
+        } catch (error: Exception) {
+            session.closeQuietly()
+            throw error
         }
-        if (paired.optJSONObject("payload")?.optBoolean("paired") != true) error("Не удалось выполнить сопряжение. Проверь код на ПК.")
-        val newToken = paired.optJSONObject("payload")?.optString("token")
-        if (!newToken.isNullOrBlank()) prefs.edit().putString("device_token", newToken).apply()
-        return session
     }
 
     private inner class SocketSession : WebSocketListener() {
@@ -230,6 +235,7 @@ class MainActivity : Activity() {
         fun sendBinary(bytes: ByteString): Boolean = webSocket.send(bytes)
         fun queuedBytes(): Long = webSocket.queueSize()
         fun close() { webSocket.close(1000, "done") }
+        fun closeQuietly() { if (::webSocket.isInitialized) webSocket.cancel() }
 
         private fun takeMessage(): JSONObject {
             val raw = messages.poll(30, TimeUnit.SECONDS) ?: error("ПК не ответил за 30 секунд.")
