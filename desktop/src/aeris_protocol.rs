@@ -65,7 +65,7 @@ async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,stat
      let path=t.path.clone();
      let playback=if is_audio_file(&t.file_name) {
       let result=player.play_file(&path,&t.file_name);
-      match result {Ok(())=>{let _=status.send(format!("Воспроизведение: {}",t.file_name));"playing_audio"},Err(e)=>{let _=status.send(format!("Встроенный плеер не смог открыть аудио: {e}"));match tokio::task::spawn_blocking(move||open::that(path)).await{Ok(Ok(()))=>"opened_with_system_player",_=>"received_open_failed"}}}
+      match result {Ok(_)=>{let _=status.send(format!("Воспроизведение: {}",t.file_name));"playing_audio"},Err(e)=>{let _=status.send(format!("Встроенный плеер не смог открыть аудио: {e}"));match tokio::task::spawn_blocking(move||open::that(path)).await{Ok(Ok(()))=>"opened_with_system_player",_=>"received_open_failed"}}}
      } else {
       match tokio::task::spawn_blocking(move||open::that(path)).await{Ok(Ok(()))=>"opened_with_system_player",Ok(Err(e))=>{let _=status.send(format!("Файл принят, ошибка открытия: {e}"));"received_open_failed"},Err(e)=>{let _=status.send(format!("Ошибка запуска приложения: {e}"));"received_open_failed"}}
      };
