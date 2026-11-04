@@ -206,7 +206,7 @@ async fn handle_client(
                         }
 
                         let extension = transfer.path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-                        let audio = matches!(extension.as_str(), "mp3" | "wav" | "flac" | "ogg" | "opus" | "m4a" | "aac" | "aiff" | "aif" | "alac");
+                        let audio = matches!(extension.as_str(), "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "aiff" | "aif" | "alac");
                         let playback = if audio {
                             match player.play_file(transfer.path.clone()) {
                                 Ok(()) => {
