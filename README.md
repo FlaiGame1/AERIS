@@ -21,7 +21,8 @@ The components communicate through the custom **AERIS Protocol**.
 
 - Pair an Android device with a Windows PC.
 - Transfer Telegram media files directly over the local network in verified chunks (up to 512 MiB).
-- Play supported audio formats in the native AERIS audio engine; open video and other formats with the Windows default application.\n- Control audio playback remotely from the Android plugin (play, pause, stop, seek and volume).
+- Play supported audio formats in the native AERIS audio engine; open video and other formats with the Windows default application.
+- Control audio playback remotely from the Android plugin (play, pause, stop, seek and volume).
 - Display playback status on the phone.
 - Portable Windows package with required runtime files.
 - Plugin and desktop app distributed together through GitHub Releases.
