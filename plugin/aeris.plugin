@@ -271,7 +271,7 @@ class AerisPlugin(BasePlugin):
             text="Передать музыку профиля через AERIS",
             on_click=self._on_profile_menu,
             icon="msg2_devices",
-            subtext="Если профильный трек доступен клиенту",
+            subtext="Отправить сохранённый профильный трек на ПК",
             priority=100,
         ))
         self._player_menu_action = None
