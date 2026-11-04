@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod aeris_protocol;
+mod mpv_player;
 
 use eframe::egui;
 use std::sync::{Arc, mpsc};
@@ -169,13 +170,13 @@ impl eframe::App for AerisDesktop {
                         ui.add_space(7.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("03").color(accent).strong());
-                            ui.label(egui::RichText::new("Сначала проверим соединение и команды").color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new("После первого сопряжения телефон запоминается").color(egui::Color32::WHITE));
                         });
                     });
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
-                    ui.label(egui::RichText::new("AERIS 0.4 • Передача файлов • Запуск в системном плеере").size(10.0).color(muted));
+                    ui.label(egui::RichText::new("AERIS 0.5 • Встроенный mpv • Управление с телефона").size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
