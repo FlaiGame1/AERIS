@@ -179,6 +179,20 @@ async fn handle_client(
                     "ping" => {
                         send_json(&mut write, json!({"protocol":"aeris","version":1,"type":"pong","id":env.id,"payload":{}})).await?;
                     }
+
+                    "get_status" => {
+                        if !paired {
+                            send_error(&mut write, env.id, "pairing_required", "Сначала выполните сопряжение").await?;
+                            continue;
+                        }
+                        match player.lock().await.playback_status().await {
+                            Ok(playback) => send_json(&mut write, json!({
+                                "protocol":"aeris","version":1,"type":"playback_status","id":env.id,
+                                "payload":playback
+                            })).await?,
+                            Err(error) => send_error(&mut write, env.id, "player_error", &format!("{error:#}")).await?,
+                        }
+                    }
                     "begin_media" => {
                         if !paired {
                             send_error(&mut write, env.id, "pairing_required", "Сначала выполните сопряжение").await?;
