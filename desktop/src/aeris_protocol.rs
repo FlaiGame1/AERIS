@@ -21,7 +21,6 @@ const PORT: u16 = 45872;
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_MEDIA_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 1024 * 1024;
-const PAIRING_LIFETIME: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Deserialize)]
 struct Envelope {
@@ -58,9 +57,8 @@ pub async fn run_server(
         .await
         .with_context(|| format!("Не удалось открыть порт {PORT}"))?;
     let pairing_code = Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
-    let expires_at = Instant::now() + PAIRING_LIFETIME;
     let _ = status.send(format!(
-        "Приёмник запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"
+        "Приёмник запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует до остановки сервера"
     ));
 
     loop {
@@ -75,7 +73,7 @@ pub async fn run_server(
                 let status = status.clone();
                 let player = player.clone();
                 tokio::spawn(async move {
-                    if let Err(error) = handle_client(stream, peer, code, expires_at, status, player).await {
+                    if let Err(error) = handle_client(stream, peer, code, status, player).await {
                         tracing::warn!("AERIS client {peer} disconnected: {error:#}");
                     }
                 });
@@ -89,7 +87,6 @@ async fn handle_client(
     stream: TcpStream,
     peer: SocketAddr,
     pairing_code: String,
-    expires_at: Instant,
     status: mpsc::Sender<String>,
     player: PlayerHandle,
 ) -> Result<()> {
@@ -123,12 +120,12 @@ async fn handle_client(
                             "protocol":"aeris","version":1,"type":"hello_ack","id":env.id,
                             "payload":{"server_name":"AERIS Desktop","protocol_version":1,
                                 "pairing_required":true,
-                                "pairing_expires_in":expires_at.saturating_duration_since(Instant::now()).as_secs()}
+                                "pairing_expires_in":null}
                         })).await?;
                     }
                     "pair" => {
                         let code = env.payload.get("code").and_then(Value::as_str).unwrap_or("");
-                        if Instant::now() > expires_at || code != pairing_code {
+                        if code != pairing_code {
                             send_json(&mut write, json!({
                                 "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
                                 "payload":{"paired":false,"reason":"invalid_or_expired_code"}
@@ -315,7 +312,7 @@ async fn handle_client(
                 }
             }
             Message::Ping(data) => write.send(Message::Pong(data)).await?,
-            Message::Close(_) => break,
+            Message::Close(_) => { write.flush().await?; break; },
             _ => {}
         }
     }
