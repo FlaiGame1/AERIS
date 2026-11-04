@@ -26,16 +26,17 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Plugin actions in Telegram message menus and profile action menus (profile-track extraction depends on what the Telegram client exposes to plugins).
 - Remote playback status: current title, playback position, duration and pause state.
 - Received files are stored under the Windows temporary AERIS folder.
+- Standalone browser uploader on the PC (port 45873) for sending local files from Android without Telegram.
 
 ### Development status
 
 AERIS is in early development. The Android plugin currently reads media from the Telegram client's local cache, so the media must be downloaded in Telegram before sending. The actual transfer from phone to PC is local and does not pass through Telegram servers. If Telegram is blocked but the file is already cached on the phone and both devices can communicate over the local network, transfer can still work.
 
-The Telegram plugin has a profile action-menu entry that now checks Telegram's `saved_music` document and resolves its local file through the client's file loader. A guarded low-level hook also attempts to inject **Play through AERIS** into the native `AudioPlayerAlert` three-dot menu by extending the player's `ItemOptions` menu. This hook depends on Telegram's internal class/method names and still requires on-device validation against the exact AyuGram/exteraGram build. The plugin transfers media already available in Telegram's local cache; it does not provide a separate file picker or Android share target. The Windows player currently uses a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
+The Telegram plugin has a profile action-menu entry that now checks Telegram's `saved_music` document and resolves its local file through the client's file loader. A guarded low-level hook also attempts to inject **Play through AERIS** into the native `AudioPlayerAlert` three-dot menu by extending the player's `ItemOptions` menu. This hook depends on Telegram's internal class/method names and still requires on-device validation against the exact AyuGram/exteraGram build. The plugin transfers media already available in Telegram's local cache. As a Telegram-independent fallback, AERIS Desktop serves a local browser upload page at http://<PC-LAN-IP>:45873: open it on the phone, enter the short pairing code, choose a local audio/video file and send it directly to the PC. The Windows player currently uses a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
 
 ### Security
 
-The current protocol uses unencrypted WebSocket (ws://) on the private LAN. The receiver rejects peers whose source IP is not private, loopback or link-local, and pairing tokens are stored locally by the plugin and Desktop. This is defense in depth, not encryption: use only a trusted home network and never expose TCP port 45872 to the public internet.
+The current protocol uses unencrypted WebSocket (ws://) on the private LAN. The receiver rejects peers whose source IP is not private, loopback or link-local, and pairing tokens are stored locally by the plugin and Desktop. This is defense in depth, not encryption: use only a trusted home network and never expose TCP ports 45872 or 45873 to the public internet.
 
 ### Repository structure
 
@@ -84,11 +85,11 @@ AERIS — открытый проект для передачи видео и м
 
 AERIS всё ещё находится на ранней стадии. Android-плагин пока получает файлы из локального кэша Telegram, поэтому медиа сначала нужно скачать в Telegram. Но сама передача с телефона на компьютер идёт напрямую по локальной сети и не проходит через серверы Telegram. Если Telegram заблокирован, но файл уже находится в кэше телефона и устройства видят друг друга по локальной сети, передача всё равно может работать.
 
-Пункт меню профиля теперь проверяет поле Telegram `saved_music` и пытается получить локальный файл документа через `FileLoader`. Также добавлен защищённый низкоуровневый Java-хук: он пытается добавить «Воспроизвести через AERIS» непосредственно в меню «три точки» встроенного `AudioPlayerAlert`, расширяя `ItemOptions`. Этот хук зависит от внутренних имён классов и методов конкретной версии Telegram, поэтому его ещё нужно проверить на телефоне с твоей сборкой AyuGram/exteraGram. Плагин передаёт медиа, уже доступное в локальном кэше Telegram; отдельного файлового менеджера или системного меню «Поделиться» у AERIS нет. Видео пока воспроизводится в отдельном окне mpv, а не во встроенной поверхности AERIS. Возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
+Пункт меню профиля теперь проверяет поле Telegram `saved_music` и пытается получить локальный файл документа через `FileLoader`. Также добавлен защищённый низкоуровневый Java-хук: он пытается добавить «Воспроизвести через AERIS» непосредственно в меню «три точки» встроенного `AudioPlayerAlert`, расширяя `ItemOptions`. Этот хук зависит от внутренних имён классов и методов конкретной версии Telegram, поэтому его ещё нужно проверить на телефоне с твоей сборкой AyuGram/exteraGram. Плагин передаёт медиа, уже доступное в локальном кэше Telegram. Если Telegram недоступен, открой на телефоне в браузере http://<IP-компьютера>:45873, введи короткий код сопряжения, выбери локальный аудио- или видеофайл и отправь его напрямую на ПК. Видео пока воспроизводится в отдельном окне mpv, а не во встроенной поверхности AERIS. Возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
 
 ### Безопасность
 
-Сейчас протокол использует незашифрованный WebSocket (ws://) в частной локальной сети. Приёмник отклоняет подключения с IP-адресов, не относящихся к частным, loopback или link-local диапазонам; токены сопряжения хранятся локально в плагине и Desktop. Это дополнительная защита, а не шифрование: используй AERIS только в доверенной домашней сети и не открывай TCP-порт 45872 в интернет.
+Сейчас протокол использует незашифрованный WebSocket (ws://) в частной локальной сети. Приёмник отклоняет подключения с IP-адресов, не относящихся к частным, loopback или link-local диапазонам; токены сопряжения хранятся локально в плагине и Desktop. Это дополнительная защита, а не шифрование: используй AERIS только в доверенной домашней сети и не открывай TCP-порты 45872 и 45873 в интернет.
 
 ### Структура репозитория
 
