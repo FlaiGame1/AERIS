@@ -552,9 +552,9 @@ async fn handle_browser_upload(
             let _ = status.send(format!("Получено из браузера: {} · {:.1} МБ", file_name, size as f64 / 1048576.0));
             send_http_json(&mut stream, "200 OK", json!({
                 "success":true,
-                "file_name":file_name,
+                "file_name":file_name.clone(),
                 "size":size,
-                "sha256":digest
+                "sha256":digest.clone()
             })).await?;
             tracing::info!("AERIS browser upload from {peer}: {file_name} ({size} bytes, sha256 {digest})");
         }
