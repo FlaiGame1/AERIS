@@ -209,7 +209,7 @@ where
 
 fn is_private_ip(ip: std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
+        std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || (ip.octets()[0] == 169 && ip.octets()[1] == 254),
         std::net::IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
     }
 }
