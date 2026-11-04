@@ -26,7 +26,7 @@ pub async fn run_server(shutdown:Arc<Notify>,status:mpsc::Sender<String>)->Resul
  let listener=TcpListener::bind(SocketAddr::new(ip,PORT)).await.with_context(||format!("Не удалось открыть порт {PORT}"))?;
  let pairing_code=Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
  let player=Arc::new(Mutex::new(AudioPlayer::default()));
- let _=status.send(format!("AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"));
+ let _=status.send(format!("AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует до остановки приёмника"));
  loop { tokio::select! {
   _=shutdown.notified()=>{let _=status.send("Сервер AERIS остановлен".into());break;}
   accepted=listener.accept()=>{let(stream,peer)=accepted.context("Ошибка входящего TCP-подключения")?;let code=pairing_code.clone();let status=status.clone();let player=player.clone();tokio::spawn(async move{if let Err(e)=handle_client(stream,peer,code,status,player).await{tracing::warn!("AERIS client {peer} disconnected: {e:#}");}});}
