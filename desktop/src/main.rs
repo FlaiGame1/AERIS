@@ -117,7 +117,7 @@ impl AerisDesktop {
         let available = ui.available_width().min(650.0);
         ui.vertical_centered(|ui| {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("NOW PLAYING").size(10.0).strong().tracking(2.0).color(egui::Color32::from_rgb(205, 183, 236)));
+            ui.label(egui::RichText::new("NOW PLAYING").size(10.0).strong().color(egui::Color32::from_rgb(205, 183, 236)));
             ui.add_space(18.0);
             let side = (available - 64.0).min(390.0).max(190.0);
             let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
@@ -174,7 +174,7 @@ impl AerisDesktop {
         ui.add_space(18.0);
 
         egui::Frame::none().fill(egui::Color32::from_rgb(38,34,49)).rounding(egui::Rounding::same(18.0)).inner_margin(egui::Margin::same(20.0)).show(ui, |ui| {
-            ui.label(egui::RichText::new("КОД СОПРЯЖЕНИЯ").size(10.0).strong().tracking(1.5).color(egui::Color32::from_rgb(190,181,204)));
+            ui.label(egui::RichText::new("КОД СОПРЯЖЕНИЯ").size(10.0).strong().color(egui::Color32::from_rgb(190,181,204)));
             ui.add_space(8.0);
             let code = if self.pairing_code.is_empty() { "••••••" } else { &self.pairing_code };
             ui.label(egui::RichText::new(code).size(34.0).strong().monospace().color(egui::Color32::WHITE));
