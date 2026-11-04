@@ -12,7 +12,7 @@ use std::{
     sync::{Arc, mpsc},
     time::Duration,
 };
-use tokio::{net::{TcpListener, TcpStream}, sync::{Mutex, Notify}, time::Instant};
+use tokio::{io::AsyncReadExt, net::{TcpListener, TcpStream}, sync::{Mutex, Notify}, time::Instant};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use uuid::Uuid;
 
@@ -20,6 +20,7 @@ use crate::mpv_player::MpvPlayer;
 
 const PROTOCOL_VERSION: u8 = 1;
 const PORT: u16 = 45872;
+const UPLOAD_PORT: u16 = 45873;
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_MEDIA_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 1024 * 1024;
@@ -55,6 +56,9 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     let listener = TcpListener::bind(SocketAddr::new(ip, PORT))
         .await
         .with_context(|| format!("Не удалось открыть порт {PORT}"))?;
+    let upload_listener = TcpListener::bind(SocketAddr::new(ip, UPLOAD_PORT))
+        .await
+        .with_context(|| format!("Не удалось открыть порт {UPLOAD_PORT} для браузерной загрузки"))?;
 
     let pairing_code = Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
     let expires_at = Instant::now() + PAIRING_LIFETIME;
@@ -62,7 +66,7 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     let player = Arc::new(Mutex::new(MpvPlayer::new()));
 
     let _ = status.send(format!(
-        "AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"
+        "AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nЗагрузка из браузера: http://{ip}:{UPLOAD_PORT}\nКод подключения: {pairing_code}\nКод действует 3 минуты"
     ));
 
     loop {
@@ -80,6 +84,17 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
                 tokio::spawn(async move {
                     if let Err(error) = handle_client(stream, peer, code, expires_at, tokens, player, status).await {
                         tracing::warn!("AERIS client {peer} disconnected: {error:#}");
+                    }
+                });
+            }
+            upload_accepted = upload_listener.accept() => {
+                let (stream, peer) = upload_accepted.context("Ошибка браузерного подключения")?;
+                let code = pairing_code.clone();
+                let status = status.clone();
+                let player = player.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = handle_browser_upload(stream, peer, code, expires_at, player, status).await {
+                        tracing::warn!("AERIS browser upload from {peer} failed: {error:#}");
                     }
                 });
             }
@@ -379,6 +394,233 @@ async fn handle_client(
         let _ = fs::remove_file(transfer.path);
     }
     Ok(())
+}
+
+
+const BROWSER_UPLOAD_PAGE: &str = r#"<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>AERIS — отправка файла</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#121923;color:#f3f7fb;font:16px system-ui,sans-serif;display:grid;place-items:center;padding:20px}
+main{width:min(100%,440px);background:#1b2532;border:1px solid #2b3b4d;border-radius:22px;padding:26px;box-shadow:0 18px 55px #0005}
+.logo{color:#2a9bdc;font-size:13px;font-weight:800;letter-spacing:.18em}h1{font-size:27px;margin:8px 0}p{color:#a9b8c8;line-height:1.5}
+label{display:block;font-size:13px;color:#a9b8c8;margin:18px 0 7px}
+input{width:100%;padding:13px;border:1px solid #40536a;border-radius:11px;background:#111a25;color:#fff;font:inherit}
+button{width:100%;margin-top:20px;padding:14px;border:0;border-radius:12px;background:#2a9bdc;color:white;font-weight:700;font-size:16px}
+button:disabled{opacity:.55}#result{margin-top:16px;min-height:24px;font-size:14px;overflow-wrap:anywhere}
+small{display:block;margin-top:18px;color:#8092a5;line-height:1.5}
+</style></head>
+<body><main>
+<div class="logo">AERIS · LOCAL TRANSFER</div>
+<h1>Отправить на компьютер</h1>
+<p>Выбери аудио или видео в памяти телефона. Файл уйдёт напрямую на компьютер по Wi-Fi — Telegram для этого не нужен.</p>
+<label for="code">Код подключения с AERIS Desktop</label>
+<input id="code" inputmode="text" maxlength="6" autocomplete="off" placeholder="Например, A1B2C3">
+<label for="file">Музыка или видео</label>
+<input id="file" type="file" accept="audio/*,video/*,.mp3,.m4a,.flac,.wav,.mp4,.mkv,.webm,.mov">
+<button id="send" type="button">Отправить и воспроизвести</button>
+<div id="result" role="status"></div>
+<small>Оба устройства должны быть в одной локальной сети. Код действует 3 минуты. Используй только доверенную домашнюю сеть.</small>
+</main>
+<script>
+const code=document.getElementById('code');
+const file=document.getElementById('file');
+const button=document.getElementById('send');
+const result=document.getElementById('result');
+button.addEventListener('click',async()=>{
+ const selected=file.files&&file.files[0];
+ if(!selected){result.textContent='Сначала выбери файл.';return;}
+ if(!/^[A-Za-z0-9]{6}$/.test(code.value.trim())){result.textContent='Введи шестизначный код с компьютера.';return;}
+ if(selected.size===0||selected.size>512*1024*1024){result.textContent='Файл пустой или больше 512 МиБ.';return;}
+ button.disabled=true;result.textContent='Передаём файл… Не закрывай страницу.';
+ try{
+  const url='/upload?code='+encodeURIComponent(code.value.trim().toUpperCase())+'&name='+encodeURIComponent(selected.name);
+  const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:selected});
+  const data=await response.json();
+  if(!response.ok||!data.success)throw new Error(data.error||'Ошибка загрузки');
+  result.textContent='Готово! Воспроизведение: '+data.file_name;
+ }catch(error){result.textContent='Не удалось отправить: '+error.message;}
+ finally{button.disabled=false;}
+});
+</script></body></html>"#;
+
+async fn handle_browser_upload(
+    mut stream: TcpStream,
+    peer: SocketAddr,
+    pairing_code: String,
+    expires_at: Instant,
+    player: Arc<Mutex<MpvPlayer>>,
+    status: mpsc::Sender<String>,
+) -> Result<()> {
+    let mut request = Vec::new();
+    let mut buffer = [0u8; 16 * 1024];
+    let header_end = loop {
+        let count = stream.read(&mut buffer).await.context("Не удалось прочитать HTTP-запрос")?;
+        if count == 0 {
+            bail!("Браузер закрыл соединение до отправки заголовков");
+        }
+        request.extend_from_slice(&buffer[..count]);
+        if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position;
+        }
+        if request.len() > 16 * 1024 {
+            bail!("HTTP-заголовки слишком большие");
+        }
+    };
+
+    let initial_body = request[header_end + 4..].to_vec();
+    let headers = String::from_utf8_lossy(&request[..header_end]);
+    let mut lines = headers.lines();
+    let request_line = lines.next().unwrap_or_default();
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default();
+    let target = request_parts.next().unwrap_or("/");
+    let mut content_length = None;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse::<u64>().ok();
+            }
+        }
+    }
+
+    if method == "GET" && (target == "/" || target.starts_with("/?")) {
+        send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", BROWSER_UPLOAD_PAGE.as_bytes()).await?;
+        return Ok(());
+    }
+
+    let Some((path, query)) = target.split_once('?') else {
+        send_http_json(&mut stream, "404 Not Found", json!({"success":false,"error":"Страница не найдена"})).await?;
+        return Ok(());
+    };
+    if method != "POST" || path != "/upload" {
+        send_http_json(&mut stream, "404 Not Found", json!({"success":false,"error":"Страница не найдена"})).await?;
+        return Ok(());
+    }
+
+    let code = query_parameter(query, "code").unwrap_or_default().to_ascii_uppercase();
+    if Instant::now() > expires_at || code != pairing_code {
+        send_http_json(&mut stream, "403 Forbidden", json!({"success":false,"error":"Код неверный или истёк. Посмотри новый код в AERIS Desktop."})).await?;
+        return Ok(());
+    }
+
+    let Some(size) = content_length else {
+        send_http_json(&mut stream, "411 Length Required", json!({"success":false,"error":"Браузер не передал размер файла."})).await?;
+        return Ok(());
+    };
+    if size == 0 || size > MAX_MEDIA_BYTES {
+        send_http_json(&mut stream, "413 Content Too Large", json!({"success":false,"error":"Файл пустой или больше лимита 512 МиБ."})).await?;
+        return Ok(());
+    }
+
+    let file_name = sanitize_name(&query_parameter(query, "name").unwrap_or_else(|| "media.bin".into()));
+    let directory = std::env::temp_dir().join("AERIS").join("Received");
+    fs::create_dir_all(&directory)?;
+    let path = directory.join(format!("{}-{}", Uuid::new_v4(), file_name));
+    let mut file = File::create(&path)?;
+    let mut hasher = Sha256::new();
+    let mut received = 0u64;
+
+    let first_count = initial_body.len().min(size as usize);
+    if first_count > 0 {
+        file.write_all(&initial_body[..first_count])?;
+        hasher.update(&initial_body[..first_count]);
+        received += first_count as u64;
+    }
+    while received < size {
+        let count = stream.read(&mut buffer).await.context("Ошибка при получении файла из браузера")?;
+        if count == 0 {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            bail!("Браузер оборвал загрузку: получено {received} из {size} байт");
+        }
+        let take = (size - received).min(count as u64) as usize;
+        file.write_all(&buffer[..take])?;
+        hasher.update(&buffer[..take]);
+        received += take as u64;
+    }
+    file.flush()?;
+    drop(file);
+    let digest = format!("{:x}", hasher.finalize());
+
+    match player.lock().await.play_file(&path).await {
+        Ok(()) => {
+            let _ = status.send(format!("Получено из браузера: {} · {:.1} МБ", file_name, size as f64 / 1048576.0));
+            send_http_json(&mut stream, "200 OK", json!({
+                "success":true,
+                "file_name":file_name,
+                "size":size,
+                "sha256":digest
+            })).await?;
+            tracing::info!("AERIS browser upload from {peer}: {file_name} ({size} bytes, sha256 {digest})");
+        }
+        Err(error) => {
+            let _ = status.send(format!("Файл получен, но mpv не запустил его: {error:#}"));
+            send_http_json(&mut stream, "500 Internal Server Error", json!({
+                "success":false,
+                "error":format!("Файл принят, но mpv не смог его открыть: {error:#}")
+            })).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn send_http_json(stream: &mut TcpStream, status: &str, value: Value) -> Result<()> {
+    let body = serde_json::to_vec(&value)?;
+    send_http_response(stream, status, "application/json; charset=utf-8", &body).await
+}
+
+async fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]) -> Result<()> {
+    let headers = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        body.len()
+    );
+    use tokio::io::AsyncWriteExt;
+    stream.write_all(headers.as_bytes()).await?;
+    stream.write_all(body).await?;
+    stream.flush().await?;
+    Ok(())
+}
+
+fn query_parameter(query: &str, key: &str) -> Option<String> {
+    query.split('&').find_map(|part| {
+        let (name, value) = part.split_once('=')?;
+        (url_decode(name) == key).then(|| url_decode(value))
+    })
+}
+
+fn url_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => { decoded.push(b' '); index += 1; }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = |byte: u8| -> Option<u8> {
+                    match byte {
+                        b'0'..=b'9' => Some(byte - b'0'),
+                        b'a'..=b'f' => Some(byte - b'a' + 10),
+                        b'A'..=b'F' => Some(byte - b'A' + 10),
+                        _ => None,
+                    }
+                };
+                if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
+                    decoded.push((high << 4) | low);
+                    index += 3;
+                } else {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => { decoded.push(byte); index += 1; }
+        }
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 fn token_store_path() -> PathBuf {
