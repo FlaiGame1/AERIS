@@ -203,7 +203,8 @@ async fn handle_client(
                             if valid {
                                 paired = true;
                                 let device_name = env.payload.get("device_name").and_then(Value::as_str).unwrap_or("Android").chars().take(48).collect::<String>();
-                                let _ = status.send(format!("Повторно подключено устройство: {device_name} ({peer})"));
+                                device_label = format!("{device_name} ({peer})");
+                                let _ = status.send(format!("Повторно подключено устройство: {device_label}"));
                                 send_json(&mut write, json!({
                                     "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
                                     "payload":{"paired":true,"session":"remembered","token":token}
@@ -234,7 +235,8 @@ async fn handle_client(
                                 }
                                 paired = true;
                                 let device_name = env.payload.get("device_name").and_then(Value::as_str).unwrap_or("Android").chars().take(48).collect::<String>();
-                                let _ = status.send(format!("Подключено новое устройство: {device_name} ({peer})"));
+                                device_label = format!("{device_name} ({peer})");
+                                let _ = status.send(format!("Подключено новое устройство: {device_label}"));
                                 send_json(&mut write, json!({
                                     "protocol":"aeris","version":1,"type":"pair_result","id":env.id,
                                     "payload":{"paired":true,"session":"remembered","token":token}
