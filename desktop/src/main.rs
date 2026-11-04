@@ -1,7 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod aeris_protocol;
-mod cast;
 
 use eframe::egui;
 use std::path::PathBuf;
@@ -132,7 +131,7 @@ impl eframe::App for AerisDesktop {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
                     ui.label(egui::RichText::new("AERIS").size(15.0).strong().color(accent));
-                    ui.heading(egui::RichText::new("CAST").size(34.0).strong().color(egui::Color32::WHITE));
+                    ui.heading(egui::RichText::new("DESKTOP").size(30.0).strong().color(egui::Color32::WHITE));
                     ui.label(egui::RichText::new("Транслируй. Слушай. Смотри.").size(14.0).color(muted));
                 });
 
