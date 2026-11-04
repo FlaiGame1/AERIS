@@ -20,6 +20,8 @@ futures-util = "0.3"
 tokio-tungstenite = "0.26"
 url = "2"
 sha2 = "0.10"
+lofty = "0.21"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [profile.release]
 opt-level = 2
