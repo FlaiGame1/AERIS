@@ -77,7 +77,7 @@ impl MpvPlayer {
         bail!("Не удалось подключиться к mpv через локальный канал: {}", last_error.map(|e| e.to_string()).unwrap_or_else(|| "тайм-аут".into()));
     }
 
-    async fn command(&mut self, command: Value) -> Result<()> {
+    async fn command(&mut self, command: Value) -> Result<Value> {
         let mut pipe = self.connect().await?;
         let mut message = serde_json::to_vec(&json!({
             "command": command,
@@ -109,47 +109,65 @@ impl MpvPlayer {
                 if error != "success" {
                     bail!("mpv отклонил команду: {error}");
                 }
-                return Ok::<(), anyhow::Error>(());
+                return Ok::<Value, anyhow::Error>(response.get("data").cloned().unwrap_or(Value::Null));
             }
-        }).await.context("mpv не ответил на команду за 3 секунды")??;
-        Ok(())
+        }).await.context("mpv не ответил на команду за 3 секунды")??
+    }
+
+    async fn command_ok(&mut self, command: Value) -> Result<()> {
+        self.command(command).await.map(|_| ())
+    }
+
+    async fn property(&mut self, name: &str) -> Result<Value> {
+        self.command(json!(["get_property", name])).await
+    }
+
+    pub async fn playback_status(&mut self) -> Result<Value> {
+        let path = self.property("path").await.unwrap_or(Value::Null);
+        let title = self.property("media-title").await.unwrap_or(Value::Null);
+        let duration = self.property("duration").await.unwrap_or(Value::Null);
+        let position = self.property("time-pos").await.unwrap_or(Value::Null);
+        let paused = self.property("pause").await.unwrap_or(Value::Bool(false));
+        let volume = self.property("volume").await.unwrap_or(Value::Null);
+        let idle = self.property("idle-active").await.unwrap_or(Value::Bool(true));
+        Ok(json!({"path":path,"title":title,"duration":duration,"position":position,"paused":paused,"volume":volume,"idle":idle}))
     }
 
     pub async fn play_file(&mut self, path: &Path) -> Result<()> {
         let path = path.to_string_lossy().to_string();
-        self.command(json!(["loadfile", path, "replace"])).await
+        self.command_ok(json!(["loadfile", path, "replace"])).await
     }
 
     pub async fn play(&mut self) -> Result<()> {
-        self.command(json!(["set_property", "pause", false])).await
+        self.command_ok(json!(["set_property", "pause", false])).await
     }
 
     pub async fn pause(&mut self) -> Result<()> {
-        self.command(json!(["set_property", "pause", true])).await
+        self.command_ok(json!(["set_property", "pause", true])).await
     }
 
     pub async fn toggle_pause(&mut self) -> Result<()> {
-        self.command(json!(["cycle", "pause"])).await
+        self.command_ok(json!(["cycle", "pause"])).await
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        self.command(json!(["stop"])).await
+        self.command_ok(json!(["stop"])).await
     }
 
     pub async fn seek(&mut self, seconds: f64) -> Result<()> {
-        self.command(json!(["seek", seconds, "absolute"])).await
+        self.command_ok(json!(["seek", seconds, "absolute"])).await
     }
 
     pub async fn seek_relative(&mut self, seconds: f64) -> Result<()> {
-        self.command(json!(["seek", seconds, "relative"])).await
+        self.command_ok(json!(["seek", seconds, "relative"])).await
     }
 
     pub async fn set_volume(&mut self, percent: f64) -> Result<()> {
-        self.command(json!(["set_property", "volume", percent])).await
+        self.command_ok(json!(["set_property", "volume", percent])).await
     }
 
     pub async fn change_volume(&mut self, delta: f64) -> Result<()> {
-        self.command(json!(["add", "volume", delta])).await
+        self.command_ok(json!(["add", "volume", delta])).await
     }
 }
 
