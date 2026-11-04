@@ -23,6 +23,7 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Chunked transfer (1 MiB chunks) with SHA-256 integrity verification.
 - Audio and video playback through the bundled mpv engine.
 - Phone controls: pause/resume, stop, seek backward/forward and volume up/down.
+- Remote playback status: current title, playback position, duration and pause state.
 - Received files are stored under the Windows temporary AERIS folder.
 
 ### Development status
@@ -74,6 +75,7 @@ AERIS — открытый проект для передачи видео и м
 - Передача блоками по 1 МиБ с проверкой целостности SHA-256.
 - Воспроизведение аудио и видео через движок mpv, включённый в поставку.
 - Управление с телефона: пауза/продолжение, остановка, перемотка назад/вперёд и изменение громкости.
+- Запрос состояния плеера с телефона: название медиа, текущая позиция, длительность и состояние паузы.
 - Полученные файлы сохраняются во временную папку AERIS в Windows.
 
 ### Состояние разработки
