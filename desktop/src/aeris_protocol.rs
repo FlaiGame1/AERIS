@@ -163,6 +163,7 @@ async fn handle_client(
     let ws = accept_async(stream).await.context("WebSocket handshake failed")?;
     let (mut write, mut read) = ws.split();
     let mut paired = false;
+    let mut device_label = peer.to_string();
     let mut incoming: Option<IncomingMedia> = None;
 
     while let Some(message) = read.next().await {
@@ -469,7 +470,7 @@ async fn handle_client(
         drop(transfer.file);
         let _ = fs::remove_file(transfer.path);
     }
-    if paired { let _ = status.send(format!("Устройство отключено: {peer}")); }
+    if paired { let _ = status.send(format!("Устройство отключено: {device_label}")); }
     Ok(())
 }
 
