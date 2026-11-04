@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod aeris_protocol;
 mod cast;
 
 use eframe::egui;
@@ -30,50 +31,21 @@ impl Default for AerisDesktop {
 
 impl AerisDesktop {
     fn start_receiver(&mut self) {
-        let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) else {
-            self.status = "Не удалось определить папку программы".to_owned();
-            return;
-        };
-        let mpv = dir.join("mpv").join("mpv.exe");
-        if !mpv.is_file() {
-            self.status = "Не найден mpv\\mpv.exe. Распакуй программу целиком".to_owned();
-            return;
-        }
-
-        let cli = cast::config::Cli {
-            friendly_name: Some("AERIS Desktop".to_owned()),
-            model: "Chromecast Ultra".to_owned(),
-            device_id: None,
-            port: 8009,
-            capabilities: 4101,
-            cert: None,
-            key: None,
-            player: "mpv".to_owned(),
-            mpv: mpv.to_string_lossy().into_owned(),
-            ipc: None,
-            vlc: String::new(),
-            vlc_port: 4212,
-            no_tray: true,
-            dump_icon: None,
-            dump_icon_ico: None,
-            verbose: 0,
-        };
-
         let shutdown = Arc::new(Notify::new());
         let thread_shutdown = shutdown.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
         let startup_error_tx = ready_tx.clone();
 
         let thread = thread::Builder::new()
-            .name("aeris-desktop-receiver".to_owned())
+            .name("aeris-protocol-server".to_owned())
             .spawn(move || {
                 let runtime = tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build();
                 match runtime {
                     Ok(runtime) => {
-                        if let Err(error) = runtime.block_on(cast::run_receiver(cli, thread_shutdown, ready_tx)) {
-                            let _ = startup_error_tx.send(format!("Ошибка приёмника: {error:#}"));
+                        if let Err(error) = runtime.block_on(aeris_protocol::run_server(thread_shutdown, ready_tx)) {
+                            let _ = startup_error_tx.send(format!("Ошибка AERIS Protocol: {error:#}"));
                         }
                     }
                     Err(error) => {
@@ -87,7 +59,7 @@ impl AerisDesktop {
                 self.shutdown = Some(shutdown);
                 self.ready_rx = Some(ready_rx);
                 self.receiver_thread = Some(handle);
-                self.status = "Запускаем приёмник…".to_owned();
+                self.status = "Запускаем AERIS Protocol…".to_owned();
             }
             Err(error) => self.status = format!("Не удалось создать поток: {error}"),
         }
@@ -174,7 +146,7 @@ impl eframe::App for AerisDesktop {
                         ui.label(egui::RichText::new(&self.status).size(13.0).color(muted));
                         ui.add_space(18.0);
                         let running = self.receiver_thread.is_some();
-                        let button_text = if running { "Остановить приёмник" } else { "Запустить приёмник" };
+                        let button_text = if running { "Остановить сервер" } else { "Запустить сервер" };
                         if ui.add_sized([ui.available_width(), 46.0],
                             egui::Button::new(egui::RichText::new(button_text).size(15.0).strong())
                                 .fill(accent).rounding(egui::Rounding::same(10.0))).clicked() {
@@ -189,23 +161,23 @@ impl eframe::App for AerisDesktop {
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("01").color(accent).strong());
-                            ui.label(egui::RichText::new("Телефон и ПК в одной Wi-Fi сети").color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new("Подключи телефон и ПК к одной Wi-Fi сети").color(egui::Color32::WHITE));
                         });
                         ui.add_space(7.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("02").color(accent).strong());
-                            ui.label(egui::RichText::new("Выбери AERIS в приложении").color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new("Введи адрес и код подключения в плагине").color(egui::Color32::WHITE));
                         });
                         ui.add_space(7.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("03").color(accent).strong());
-                            ui.label(egui::RichText::new("Медиа откроется в окне MPV").color(egui::Color32::WHITE));
+                            ui.label(egui::RichText::new("Сначала проверим соединение и команды").color(egui::Color32::WHITE));
                         });
                     });
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("Временный Cast V2 backend • MPV").size(11.0).color(muted));
-                    ui.label(egui::RichText::new("Неофициальный приёмник: совместимость зависит от приложения").size(10.0).color(muted));
+                    ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
+                    ui.label(egui::RichText::new("Тестовая сборка: воспроизведение медиа ещё не подключено").size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
