@@ -351,8 +351,8 @@ class AerisPlugin(BasePlugin):
         def work():
             sock = None
             try:
-                sock, token = _connect(host, port, code, token)
-                self.set_setting("device_token", token)
+                sock, new_token = _connect(host, port, code, device_token)
+                self.set_setting("device_token", new_token)
                 if command:
                     response = _send_msg(sock, command, payload or {}, "control")
                     if command == "get_status":
@@ -427,8 +427,8 @@ class AerisPlugin(BasePlugin):
 
         def work():
             try:
-                result, token = _transfer(host, port, code, path, token)
-                self.set_setting("device_token", token)
+                result, new_token = _transfer(host, port, code, path, device_token)
+                self.set_setting("device_token", new_token)
                 self.logger.info(result)
                 BulletinHelper.show_success(result)
             except Exception as error:
