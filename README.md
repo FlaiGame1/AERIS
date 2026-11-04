@@ -35,7 +35,7 @@ A native standalone Android app is not implemented yet. As a Telegram-independen
 
 ### Security
 
-The current protocol uses unencrypted WebSocket (ws://) on the private LAN. Pairing tokens are stored locally by the plugin and Desktop. Use only a trusted home network and never expose TCP port 45872 to the public internet.
+The current protocol uses unencrypted WebSocket (ws://) on the private LAN. Pairing tokens are stored locally by the plugin and Desktop. Use only a trusted home network and never expose TCP ports 45872 or 45873 to the public internet.
 
 ### Repository structure
 
