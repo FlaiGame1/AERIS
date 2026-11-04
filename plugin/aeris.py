@@ -260,11 +260,21 @@ class AerisPlugin(BasePlugin):
             subtext="Отправить медиа на компьютер",
             priority=100,
         ))
+        self.profile_menu_id = self.add_menu_item(MenuItemData(
+            menu_type=MenuItemType.PROFILE_ACTION_MENU,
+            text="Передать музыку профиля через AERIS",
+            on_click=self._on_profile_menu,
+            icon="msg2_devices",
+            subtext="Если профильный трек доступен клиенту",
+            priority=100,
+        ))
 
     def on_plugin_unload(self):
         try:
             if getattr(self, "media_menu_id", None):
                 self.remove_menu_item(self.media_menu_id)
+            if getattr(self, "profile_menu_id", None):
+                self.remove_menu_item(self.profile_menu_id)
         except Exception:
             pass
 
@@ -396,6 +406,52 @@ class AerisPlugin(BasePlugin):
     def _volume_up(self, _view=None):
         self._control("volume_delta", {"delta": 5})
 
+
+    def _send_path(self, path, label="медиа"):
+        try:
+            host, port, code = self._values()
+        except Exception as error:
+            BulletinHelper.show_error(str(error))
+            return
+        token = str(self.get_setting("device_token", "")).strip()
+        BulletinHelper.show_info("Передаём {} на AERIS Desktop…".format(label))
+
+        def work():
+            try:
+                result, token = _transfer(host, port, code, path, token)
+                self.set_setting("device_token", token)
+                self.logger.info(result)
+                BulletinHelper.show_success(result)
+            except Exception as error:
+                self.logger.exception("AERIS profile media transfer failed")
+                BulletinHelper.show_error("Не удалось передать {}: {}".format(label, error))
+
+        threading.Thread(target=work, name="AERIS-profile-transfer", daemon=True).start()
+
+    def _on_profile_menu(self, context):
+        self.logger.info("AERIS profile menu context keys: {}".format(list(context.keys())))
+        account = context.get("account")
+        candidates = []
+        for owner in (context.get("userFull"), context.get("user")):
+            if owner is None:
+                continue
+            candidates.append(owner)
+            for field in ("music", "profileMusic", "profile_music", "audio", "media", "message"):
+                try:
+                    value = getattr(owner, field, None)
+                    if value is not None:
+                        candidates.append(value)
+                except Exception:
+                    pass
+        for candidate in candidates:
+            try:
+                path = _media_path(candidate, account)
+                self._send_path(path, "музыку профиля")
+                return
+            except Exception:
+                continue
+        BulletinHelper.show_error("Клиент не предоставил файл музыки профиля через API меню. Открой сам трек в сообщении/медиаплеере и используй «Воспроизвести через AERIS».")
+
     def _on_message_menu(self, context):
         self.logger.info("AERIS menu context keys: {}".format(list(context.keys())))
         message = context.get("message")
@@ -409,17 +465,4 @@ class AerisPlugin(BasePlugin):
             BulletinHelper.show_error(str(error))
             return
 
-        token = str(self.get_setting("device_token", "")).strip()
-        BulletinHelper.show_info("Передаём медиа и запускаем воспроизведение на ПК…")
-
-        def work():
-            try:
-                result, token = _transfer(host, port, code, path, token)
-                self.set_setting("device_token", token)
-                self.logger.info(result)
-                BulletinHelper.show_success(result)
-            except Exception as error:
-                self.logger.exception("AERIS transfer failed")
-                BulletinHelper.show_error("Передача не удалась: {}".format(error))
-
-        threading.Thread(target=work, name="AERIS-media-transfer", daemon=True).start()
+        self._send_path(path, "медиа")
