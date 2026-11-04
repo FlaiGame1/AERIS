@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-AERIS sends media from an Android Telegram client to AERIS Desktop over the local network. Desktop plays received files using the bundled mpv runtime. The phone can control the active playback session.
+AERIS sends media from Android to AERIS Desktop over the local network. Sources include the Telegram plugin cache and files selected/shared through the standalone Android companion. Desktop plays received files using the bundled mpv runtime. The phone can control the active playback session.
 
 The active implementation includes:
 - WebSocket negotiation and pairing;
@@ -18,7 +18,7 @@ The active implementation includes:
 
 ## 2. Network and security
 
-Desktop listens on the detected private LAN address at TCP port 45872. The first pairing uses a six-character code displayed by Desktop. The plugin then stores a random device token; Desktop persists the token in %APPDATA%\AERIS\paired_devices.json.
+Desktop listens on the detected private LAN address at TCP port 45872. The first pairing uses a six-character code displayed by Desktop. The Android client then stores a random device token; Desktop persists the token in %APPDATA%\AERIS\paired_devices.json.
 
 The transport is currently unencrypted ws://. Pairing tokens are bearer credentials and are stored locally without encryption. Use AERIS only on a trusted private network. Do not expose port 45872 to the public internet. Removing a device token from the desktop paired-devices file revokes that device.
 
@@ -31,19 +31,19 @@ Messages are UTF-8 JSON objects with protocol, version, type, optional id and pa
 ## 4. Connection and pairing
 
 1. Desktop starts the receiver and displays its LAN address and six-character pairing code.
-2. Plugin connects to ws://<LAN-IP>:45872/ws.
-3. Plugin sends hello; Desktop replies hello_ack.
-4. On first connection, plugin sends pair with the displayed code.
+2. Android client connects to ws://<LAN-IP>:45872/ws.
+3. Android client sends hello; Desktop replies hello_ack.
+4. On first connection, the client sends pair with the displayed code.
 5. Desktop replies pair_result with a random device token.
-6. Plugin stores the token in its settings and reuses it for later connections. Desktop stores the token under the current Windows user's AppData folder.
+6. The client stores the token locally and reuses it for later connections. Desktop stores the token under the current Windows user's AppData folder.
 
 For subsequent connections, pair contains a token instead of the short-lived code.
 
 ## 5. Media transfer
 
-After pairing, the plugin sends begin_media with file_name, mime_type, size and sha256. Desktop replies media_ready. The plugin sends binary WebSocket frames of at most 1 MiB, then sends finish_media. Desktop verifies the exact byte count and SHA-256, saves the file under %TEMP%\AERIS\Received, and asks mpv to play it.
+After pairing, the Android client sends begin_media with file_name, mime_type, size and sha256. Desktop replies media_ready. The client sends binary WebSocket frames of at most 1 MiB, then sends finish_media. Desktop verifies the exact byte count and SHA-256, saves the file under %TEMP%\AERIS\Received, and asks mpv to play it.
 
-The maximum media size is 512 MiB. The plugin currently resolves media only from the Telegram client's local cache. Media must be downloaded in Telegram first. A separate Android file picker / standalone sender is planned so AERIS can work without Telegram.
+The maximum media size is 512 MiB. The Telegram plugin currently resolves media from the Telegram client's local cache, so Telegram media must be downloaded first. The standalone Android companion can instead select a local file through Android Storage Access Framework or receive a file through the Android share sheet. This direct phone-to-PC transfer does not require Telegram servers or Telegram connectivity.
 
 ## 6. Playback commands
 
@@ -71,7 +71,7 @@ AERIS Desktop launches the bundled mpv.exe on the first playback request and con
 ## 8. Current limitations
 
 - Telegram media must already be downloaded and present in the app cache.
-- A standalone Android file picker and independent Android sender are not implemented yet.
+- The Telegram plugin still requires media to be cached locally by Telegram; use the standalone Android companion for independent file sending.
 - The player uses a separate mpv playback window rather than an embedded AERIS video surface.
 - Transport encryption, device management UI, transfer resume and token revocation UI are future work.
 - Playback is limited to files supported by the bundled mpv build.
