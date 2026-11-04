@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -231,7 +231,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.0 loaded")
+        self.logger.info("AERIS 0.3.1 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -259,6 +259,8 @@ class AerisPlugin(BasePlugin):
             Input(key="pairing_code", text="Код сопряжения", default="", subtext="Нужен только при первом подключении или сбросе сопряжения.", icon="msg_secret", on_change=self._save_code),
             Text(text="Проверить подключение", subtext="Подключиться и запомнить это устройство.", icon="msg_link", accent=True, on_click=self._test),
             Divider(text="Управление плеером"),
+            Text(text="Продолжить воспроизведение", subtext="Снять паузу на компьютере.", icon="msg2_devices", on_click=self._play),
+            Text(text="Поставить на паузу", subtext="Приостановить текущую музыку или видео.", icon="msg2_devices", on_click=self._pause),
             Text(text="Пауза / продолжить", subtext="Переключить состояние воспроизведения.", icon="msg2_devices", on_click=self._toggle_pause),
             Text(text="Остановить воспроизведение", subtext="Остановить текущий файл.", icon="msg2_devices", on_click=self._stop),
             Text(text="Назад на 10 секунд", subtext="Перемотать назад.", icon="msg2_devices", on_click=self._seek_back),
@@ -266,7 +268,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.0", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.1", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -330,6 +332,12 @@ class AerisPlugin(BasePlugin):
 
     def _control(self, command, payload=None):
         self._run_connection_action(command, payload)
+
+    def _play(self, _view=None):
+        self._control("play")
+
+    def _pause(self, _view=None):
+        self._control("pause")
 
     def _toggle_pause(self, _view=None):
         self._control("toggle_pause")
