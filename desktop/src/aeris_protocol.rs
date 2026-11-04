@@ -213,9 +213,30 @@ async fn handle_client(
                                     let _ = status.send(format!("Воспроизводится: {}", transfer.file_name));
                                     "playing_in_aeris"
                                 }
-                                Err(error) => {
-                                    let _ = status.send(format!("Не удалось воспроизвести {}: {error}", transfer.file_name));
-                                    "audio_playback_failed"
+                                Err(audio_error) => {
+                                    let fallback_path = transfer.path.clone();
+                                    match tokio::task::spawn_blocking(move || open::that(fallback_path)).await {
+                                        Ok(Ok(())) => {
+                                            let _ = status.send(format!(
+                                                "Встроенный декодер не поддержал файл ({}); открыт системный плеер",
+                                                audio_error
+                                            ));
+                                            "opened_external_player"
+                                        }
+                                        Ok(Err(open_error)) => {
+                                            let _ = status.send(format!(
+                                                "Не удалось воспроизвести аудио: {}; системный плеер: {}",
+                                                audio_error, open_error
+                                            ));
+                                            "audio_playback_failed"
+                                        }
+                                        Err(join_error) => {
+                                            let _ = status.send(format!(
+                                                "Ошибка запуска системного плеера: {}", join_error
+                                            ));
+                                            "audio_playback_failed"
+                                        }
+                                    }
                                 }
                             }
                         } else {
