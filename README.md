@@ -49,7 +49,7 @@ AERIS/
 
 ### Releases
 
-Official packages are published through GitHub Releases:
+Official packages will be published through GitHub Releases after the first release is validated:
 - **Windows:** portable ZIP with AERIS Desktop and the bundled mpv runtime.
 - **Android:** AERIS Telegram plugin source/package for compatible AyuGram / exteraGram clients.
 
@@ -79,6 +79,7 @@ AERIS — открытый проект для передачи видео и м
 - Подтверждённое действие плагина в контекстном меню сообщения после долгого нажатия; интеграции аудиоплеера и профиля работают в режиме best-effort и зависят от версии клиента.
 - Запрос состояния плеера с телефона: название медиа, текущая позиция, длительность и состояние паузы.
 - Полученные файлы сохраняются во временную папку AERIS в Windows.
+- Браузерная загрузка на ПК позволяет отправить локальный файл с Android без Telegram (порт 45873).
 
 ### Состояние разработки
 
@@ -101,7 +102,7 @@ AERIS/
 
 ### Релизы
 
-Официальные сборки публикуются в GitHub Releases:
+Официальные сборки будут опубликованы в GitHub Releases после проверки первой версии:
 - **Windows:** портативный ZIP с AERIS Desktop и движком mpv.
 - **Android:** исходный код плагина AERIS для совместимых клиентов AyuGram / exteraGram.
 
