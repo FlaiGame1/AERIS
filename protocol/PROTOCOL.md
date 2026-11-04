@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-AERIS sends media from Android to AERIS Desktop over the local network. Sources include the Telegram plugin cache and files selected/shared through the standalone Android companion. Desktop plays received files using the bundled mpv runtime. The phone can control the active playback session.
+AERIS sends media exposed by the Telegram Android client plugin to AERIS Desktop over the local network. Desktop plays received files using the bundled mpv runtime. The phone can control the active playback session.
 
 The active implementation includes:
 - WebSocket negotiation and pairing;
@@ -43,7 +43,7 @@ For subsequent connections, pair contains a token instead of the short-lived cod
 
 After pairing, the Android client sends begin_media with file_name, mime_type, size and sha256. Desktop replies media_ready. The client sends binary WebSocket frames of at most 1 MiB, then sends finish_media. Desktop verifies the exact byte count and SHA-256, saves the file under %TEMP%\AERIS\Received, and asks mpv to play it.
 
-The maximum media size is 512 MiB. The Telegram plugin currently resolves media from the Telegram client's local cache, so Telegram media must be downloaded first. The standalone Android companion can instead select a local file through Android Storage Access Framework or receive a file through the Android share sheet. This direct phone-to-PC transfer does not require Telegram servers or Telegram connectivity.
+The maximum media size is 512 MiB. The Telegram plugin currently resolves media from the Telegram client's local cache, so Telegram media must be downloaded first. There is currently no standalone AERIS file picker: media must be exposed to the plugin by the Telegram client.
 
 ## 6. Playback commands
 
@@ -71,7 +71,7 @@ AERIS Desktop launches the bundled mpv.exe on the first playback request and con
 ## 8. Current limitations
 
 - Telegram media must already be downloaded and present in the app cache.
-- The Telegram plugin still requires media to be cached locally by Telegram; use the standalone Android companion for independent file sending.
+- Media must be downloaded and available in the Telegram client's local cache before the plugin can send it.
 - The player uses a separate mpv playback window rather than an embedded AERIS video surface.
 - Transport encryption, device management UI, transfer resume and token revocation UI are future work.
 - Playback is limited to files supported by the bundled mpv build.
