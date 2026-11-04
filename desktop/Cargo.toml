@@ -19,7 +19,7 @@ tokio-tungstenite = "0.26"
 url = "2"
 sha2 = "0.10"
 open = "5"
-rodio = "0.20.1"
+rodio = { version = "0.20.1", features = ["symphonia-aac", "symphonia-isomp4", "symphonia-aiff", "symphonia-alac"] }
 
 [profile.release]
 opt-level = 2
