@@ -38,29 +38,19 @@ jobs:
         shell: pwsh
         run: |
           $stage = Join-Path $env:GITHUB_WORKSPACE "dist\AERIS-Desktop"
-          New-Item -ItemType Directory -Force "$stage\mpv", "$stage\licenses" | Out-Null
+          New-Item -ItemType Directory -Force "$stage\licenses" | Out-Null
 
           Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
-          Copy-Item "..\licenses\OPENCHROMECAST-MIT.txt" "$stage\licenses\OPENCHROMECAST-MIT.txt"
-
-          winget install --id mpv-player.mpv-CI.MSVC --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-          $mpvExe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter mpv.exe -ErrorAction Stop | Select-Object -First 1
-          if (-not $mpvExe) { throw "mpv.exe was not found after installation" }
-          Get-ChildItem $mpvExe.DirectoryName -File | Where-Object { $_.Name -ne "mpv.pdb" } | Copy-Item -Destination "$stage\mpv"
 
           @"
           AERIS Desktop development package
 
-          Run aeris-desktop.exe. Keep the mpv folder beside it.
-          This early prototype still uses the legacy experimental Cast V2 backend.
-          It is not yet the final AERIS Protocol implementation.
+          Run aeris-desktop.exe. This build starts the AERIS Protocol v1
+          WebSocket receiver on the private LAN interface at TCP port 45872.
 
-          Third-party component:
-          OpenChromecast-derived code — MIT License.
-          License text: licenses/OPENCHROMECAST-MIT.txt
-
-          MPV is distributed as a separate component with its own license files.
-          "@ | Set-Content -Encoding UTF8 "$stage\THIRD-PARTY-NOTICES.txt"
+          This is an early development build. Media playback, encrypted
+          transport and persistent device pairing are not implemented yet.
+          "@ | Set-Content -Encoding UTF8 "$stage\README.txt"
 
           Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64.zip" -Force
 
