@@ -22,7 +22,7 @@ Both components communicate through the AERIS Protocol over a direct WebSocket c
 - Pair a phone with the Windows receiver using a six-character code.
 - Transfer cached media in 1 MiB chunks, up to 512 MiB per file.
 - Verify file size and SHA-256 before playback.
-- Play supported audio formats inside AERIS Desktop (MP3, WAV, FLAC, OGG, Opus, M4A/AAC and AIFF/ALAC where supported by the decoder).
+- Play supported audio formats inside AERIS Desktop (MP3, WAV, FLAC, OGG, M4A/AAC and AIFF/ALAC where supported by the decoder).
 - Open video and unsupported formats with the Windows default application.
 - Control AERIS audio from the phone: resume, pause, stop, seek and volume.
 - Control playback locally from the Desktop window.
