@@ -129,6 +129,22 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     Ok(())
 }
 
+fn extract_embedded_cover(media_path: &std::path::Path) -> Option<PathBuf> {
+    use lofty::{file::TaggedFileExt, picture::PictureType, tag::TagExt};
+    let tagged = lofty::read_from_path(media_path).ok()?;
+    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
+    let picture = tag.pictures().iter().find(|picture| {
+        picture.pic_type() == PictureType::CoverFront || picture.pic_type() == PictureType::CoverBack
+    }).or_else(|| tag.pictures().first())?;
+    let data = picture.data();
+    if data.is_empty() || data.len() > 12 * 1024 * 1024 { return None; }
+    let directory = std::env::temp_dir().join("AERIS").join("Received");
+    fs::create_dir_all(&directory).ok()?;
+    let path = directory.join(format!("cover-{}.img", Uuid::new_v4()));
+    fs::write(&path, data).ok()?;
+    Some(path)
+}
+
 async fn handle_client(
     stream: TcpStream,
     peer: SocketAddr,
@@ -335,6 +351,9 @@ async fn handle_client(
                                 let title = if transfer.track_title.is_empty() { transfer.file_name.clone() } else { transfer.track_title.clone() };
                                 let artist = if transfer.track_artist.is_empty() { transfer.mime_type.clone() } else { transfer.track_artist.clone() };
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
+                                if let Some(cover_path) = extract_embedded_cover(&transfer.path) {
+                                    let _ = status.send(format!("COVER:{}", cover_path.display()));
+                                }
                                 "playing"
                             }
                             Err(error) => {
