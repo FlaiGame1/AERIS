@@ -11,7 +11,7 @@ on:
       - "licenses/**"
       - ".github/workflows/build-windows.yml"
   push:
-    branches: [main, feature/native-player-and-remote-control]
+    branches: [main, feature/native-player-and-remote-control, feature/standalone-lan-uploader-v2]
     paths:
       - "desktop/**"
       - "protocol/**"
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: aeris-desktop-windows-build
+  group: aeris-desktop-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -84,7 +84,7 @@ jobs:
           Copy-Item "$env:GITHUB_WORKSPACE\licenses\MPV-RUNTIME-NOTICE.txt" "$stage\licenses" -Force
           Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
           @"
-          AERIS Desktop 0.5.1 preview
+          AERIS Desktop 0.6.0 preview
 
           Run aeris-desktop.exe. The first media transfer starts the bundled
           mpv playback engine. Audio and video playback are handled by mpv.
@@ -93,9 +93,10 @@ jobs:
           The Android plugin pairs once using the six-character code. A
           device token is then stored on this PC and reused for later sessions.
           The phone can play, pause, resume, stop, seek, change volume and request playback status.
+          A browser uploader is available at http://<PC-LAN-IP>:45873 for direct phone-to-PC file transfer without Telegram.
 
           AERIS uses an unencrypted WebSocket connection on the private LAN.
-          Use only a trusted home network. Do not expose port 45872 to the internet.
+          Use only a trusted home network. Do not expose ports 45872 or 45873 to the internet.
 
           Third-party runtime:
           mpv source: $env:MPV_SOURCE
