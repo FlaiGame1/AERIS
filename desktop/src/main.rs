@@ -21,6 +21,10 @@ struct AerisDesktop {
     pairing_code: String,
     lan_address: String,
     track_title: String,
+    track_artist: String,
+    connected_device: String,
+    playback_position: f64,
+    playback_duration: f64,
 }
 
 impl Default for AerisDesktop {
@@ -35,6 +39,10 @@ impl Default for AerisDesktop {
             pairing_code: String::new(),
             lan_address: String::new(),
             track_title: "Ожидание воспроизведения".to_owned(),
+            track_artist: "AERIS • Desktop player".to_owned(),
+            connected_device: String::new(),
+            playback_position: 0.0,
+            playback_duration: 0.0,
         }
     }
 }
@@ -87,6 +95,18 @@ impl AerisDesktop {
             loop {
                 match rx.try_recv() {
                     Ok(message) => {
+                        if let Some(payload) = message.strip_prefix("PLAYBACK:") {
+                            if let Ok(state) = serde_json::from_str::<serde_json::Value>(payload) {
+                                self.playback_position = state.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
+                                self.playback_duration = state.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
+                            }
+                            continue;
+                        }
+                        if let Some(device) = message.strip_prefix("Подключено новое устройство: ") {
+                            self.connected_device = device.to_owned();
+                        } else if let Some(device) = message.strip_prefix("Повторно подключено устройство: ") {
+                            self.connected_device = device.to_owned();
+                        }
                         if let Some(line) = message.lines().find(|line| line.starts_with("Код подключения:")) {
                             self.pairing_code = line.trim_start_matches("Код подключения:").trim().to_owned();
                         }
@@ -94,7 +114,10 @@ impl AerisDesktop {
                             self.lan_address = line.trim_start_matches("Адрес:").trim().to_owned();
                         }
                         if let Some(name) = message.strip_prefix("Воспроизведение: ") {
-                            self.track_title = name.split(" · ").next().unwrap_or(name).to_owned();
+                            let mut parts = name.splitn(2, " · ");
+                            self.track_title = parts.next().unwrap_or(name).to_owned();
+                            self.track_artist = parts.next().unwrap_or("Неизвестный исполнитель").to_owned();
+                            self.playback_position = 0.0;
                         }
                         self.status = message;
                     }
@@ -133,24 +156,32 @@ impl AerisDesktop {
             let title = if self.track_title.is_empty() { "Ожидание воспроизведения" } else { &self.track_title };
             ui.label(egui::RichText::new(title).size(22.0).strong().color(egui::Color32::from_rgb(250, 247, 255)));
             ui.add_space(5.0);
-            ui.label(egui::RichText::new("AERIS • Desktop player").size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
+            ui.label(egui::RichText::new(&self.track_artist).size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
             ui.add_space(22.0);
 
-            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 12.0), egui::Sense::hover());
-            ui.painter().rect_filled(egui::Rect::from_min_size(timeline.min + egui::vec2(0.0, 4.0), egui::vec2(side, 4.0)), 3.0, egui::Color32::from_rgb(91, 82, 107));
-            ui.painter().circle_filled(egui::pos2(timeline.left(), timeline.center().y + 2.0), 4.0, egui::Color32::from_rgb(235, 218, 255));
+            let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 14.0), egui::Sense::hover());
+            let line_y = timeline.center().y;
+            let progress = if self.playback_duration > 0.0 { (self.playback_position / self.playback_duration).clamp(0.0, 1.0) as f32 } else { 0.0 };
+            let knob_x = timeline.left() + timeline.width() * progress;
+            ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(timeline.left(), line_y - 2.0), egui::pos2(timeline.right(), line_y + 2.0)), 3.0, egui::Color32::from_rgb(91, 82, 107));
+            if progress > 0.0 {
+                ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(timeline.left(), line_y - 2.0), egui::pos2(knob_x, line_y + 2.0)), 3.0, egui::Color32::from_rgb(194, 164, 235));
+            }
+            ui.painter().circle_filled(egui::pos2(knob_x, line_y), 6.0, egui::Color32::from_rgb(235, 218, 255));
             if response.hovered() {
                 if let Some(pointer) = response.hover_pos() {
                     let x = pointer.x.clamp(timeline.left(), timeline.right());
                     let bubble = egui::Rect::from_center_size(egui::pos2(x, timeline.top() - 13.0), egui::vec2(52.0, 22.0));
                     ui.painter().rect_filled(bubble, 7.0, egui::Color32::from_rgb(232, 218, 249));
-                    ui.painter().text(bubble.center(), egui::Align2::CENTER_CENTER, "00:00", egui::FontId::proportional(11.0), egui::Color32::from_rgb(42, 32, 56));
+                    let hovered_seconds = if self.playback_duration > 0.0 { ((x - timeline.left()) / timeline.width().max(1.0) * self.playback_duration as f32) as u64 } else { 0 };
+                    let stamp = format!("{:02}:{:02}", hovered_seconds / 60, hovered_seconds % 60);
+                    ui.painter().text(bubble.center(), egui::Align2::CENTER_CENTER, stamp, egui::FontId::proportional(11.0), egui::Color32::from_rgb(42, 32, 56));
                 }
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("00:00").size(11.0).color(egui::Color32::from_rgb(190,181,204)));
+                ui.label(egui::RichText::new(format!("{:02}:{:02}", self.playback_position as u64 / 60, self.playback_position as u64 % 60)).size(11.0).color(egui::Color32::from_rgb(190,181,204)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("--:--").size(11.0).color(egui::Color32::from_rgb(190,181,204)));
+                    ui.label(egui::RichText::new(if self.playback_duration > 0.0 { format!("{:02}:{:02}", self.playback_duration as u64 / 60, self.playback_duration as u64 % 60) } else { "--:--".to_owned() }).size(11.0).color(egui::Color32::from_rgb(190,181,204)));
                 });
             });
             ui.add_space(18.0);
@@ -189,6 +220,10 @@ impl AerisDesktop {
         ui.add_space(18.0);
         ui.label(egui::RichText::new("Состояние").size(12.0).strong().color(egui::Color32::from_rgb(190,181,204)));
         ui.label(egui::RichText::new(&self.status).size(12.0).color(egui::Color32::from_rgb(230,224,238)));
+        if !self.connected_device.is_empty() {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(format!("Подключено устройство: {}", self.connected_device)).size(13.0).strong().color(egui::Color32::from_rgb(190, 230, 202)));
+        }
         ui.add_space(12.0);
         ui.label(egui::RichText::new("После сопряжения выбери в плагине сообщение с музыкой или видео и отправь его на AERIS. Полная синхронизация пока не включена.").size(12.0).color(egui::Color32::from_rgb(165,155,181)));
     }
@@ -211,7 +246,7 @@ impl eframe::App for AerisDesktop {
                 ui.label(egui::RichText::new("AERIS").size(17.0).strong().color(egui::Color32::from_rgb(216,190,247)));
                 ui.label(egui::RichText::new("MATERIAL 3").size(10.0).strong().color(muted));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let state = if self.receiver_thread.is_some() { "● ПРИЁМНИК АКТИВЕН" } else { "○ НЕ ПОДКЛЮЧЕНО" };
+                    let state = if !self.connected_device.is_empty() { "● УСТРОЙСТВО ПОДКЛЮЧЕНО" } else if self.receiver_thread.is_some() { "● ПРИЁМНИК АКТИВЕН" } else { "○ НЕ ПОДКЛЮЧЕНО" };
                     ui.label(egui::RichText::new(state).size(10.0).strong().color(muted));
                 });
             });
