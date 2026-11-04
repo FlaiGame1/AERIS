@@ -1,16 +1,18 @@
 use anyhow::{Context, Result, bail};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::{
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, net::windows::named_pipe::{ClientOptions, NamedPipeClient}, time::sleep};
+use tokio::{io::AsyncWriteExt, net::windows::named_pipe::{ClientOptions, NamedPipeClient}, time::{sleep, timeout}};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const IPC_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub struct MpvPlayer {
     child: Option<Child>,
@@ -76,12 +78,34 @@ impl MpvPlayer {
         bail!("Не удалось подключиться к mpv через локальный канал: {}", last_error.map(|e| e.to_string()).unwrap_or_else(|| "тайм-аут".into()));
     }
 
-    async fn command(&mut self, command: serde_json::Value) -> Result<()> {
+    async fn command(&mut self, command: Value) -> Result<()> {
         let mut pipe = self.connect().await?;
-        let mut message = serde_json::to_vec(&json!({ "command": command }))?;
+        let mut message = serde_json::to_vec(&json!({
+            "command": command,
+            "request_id": 1
+        }))?;
         message.push(b'\n');
         pipe.write_all(&message).await.context("Не удалось отправить команду медиаплееру")?;
         pipe.flush().await.context("Не удалось завершить отправку команды медиаплееру")?;
+
+        // A successful pipe write only proves that bytes reached the pipe.
+        // Read mpv's IPC acknowledgement so a rejected loadfile/control command
+        // is reported to the phone instead of being silently treated as success.
+        let response = timeout(IPC_TIMEOUT, async {
+            let mut reader = BufReader::new(pipe);
+            let mut line = String::new();
+            reader.read_line(&mut line).await?;
+            anyhow::Ok(line)
+        }).await.context("mpv не ответил на команду за 3 секунды")??;
+        if response.trim().is_empty() {
+            bail!("mpv закрыл IPC-канал без ответа");
+        }
+        let response: Value = serde_json::from_str(&response)
+            .context("mpv вернул некорректный ответ IPC")?;
+        let error = response.get("error").and_then(Value::as_str).unwrap_or("unknown");
+        if error != "success" {
+            bail!("mpv отклонил команду: {error}");
+        }
         Ok(())
     }
 
