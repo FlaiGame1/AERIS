@@ -20,8 +20,8 @@ The components communicate through the custom **AERIS Protocol**.
 ### Planned features
 
 - Pair an Android device with a Windows PC.
-- Send supported media links and metadata (title, thumbnail, MIME type).
-- Play, pause, stop, seek and control volume from Telegram.
+- Transfer Telegram media files directly over the local network in verified chunks (up to 512 MiB).
+- Open received media with the Windows default player. Native in-app playback and remote controls are planned next.
 - Display playback status on the phone.
 - Portable Windows package with required runtime files.
 - Plugin and desktop app distributed together through GitHub Releases.
@@ -40,7 +40,7 @@ AERIS/
 
 ### Development status
 
-AERIS is in early development. The Windows app now starts the first native AERIS Protocol v1 WebSocket receiver with a temporary pairing code. The plugin has connection settings and a pairing/ping test. Actual media playback, Telegram media extraction, encrypted transport and persistent pairing are not implemented yet.
+AERIS is in early development. The Windows app now starts the first native AERIS Protocol v1 WebSocket receiver with a temporary pairing code. The plugin has connection settings and a pairing/ping test. The plugin now adds a Telegram message context-menu action, attempts to resolve the message media from Telegram local storage, and transfers it in 1 MiB chunks. Desktop verifies file size and SHA-256, then opens the received file with the Windows default media application. This is an early integration: automatic downloading of media not yet cached, native AERIS playback UI, remote player controls, the built-in media-player overflow menu, encrypted transport and persistent pairing are not implemented yet.
 
 The old Google Cast prototype remains in the repository as inactive reference code, but it is no longer used by the active desktop application. Development builds use unencrypted WebSocket and must only be tested on a trusted private network.
 
@@ -90,7 +90,7 @@ AERIS/
 
 ### Состояние разработки
 
-AERIS находится на ранней стадии разработки. Приложение для Windows уже запускает первую реализацию собственного протокола AERIS v1 на WebSocket с временным кодом сопряжения. В плагине появились настройки подключения и проверка сопряжения/ping. Воспроизведение медиа, получение медиа из Telegram, шифрование соединения и постоянное сопряжение пока не реализованы.
+AERIS находится на ранней стадии разработки. Приложение для Windows уже запускает первую реализацию собственного протокола AERIS v1 на WebSocket с временным кодом сопряжения. В плагине появились настройки подключения и проверка сопряжения/ping. Плагин добавляет действие в контекстное меню сообщения Telegram, пытается получить файл из локального хранилища Telegram и передаёт его блоками по 1 МиБ. Desktop проверяет размер и SHA-256, затем открывает файл в стандартном медиаприложении Windows. Это ранняя интеграция: автоматическая загрузка ещё не закэшированных файлов, встроенный плеер AERIS, удалённое управление, меню трёх точек встроенного медиаплеера, шифрование и постоянное сопряжение пока не реализованы.
 
 Старый прототип Google Cast оставлен в репозитории как справочный код, но активное приложение его больше не использует. Тестовая версия использует незашифрованный WebSocket и предназначена только для доверенной домашней сети.
 
