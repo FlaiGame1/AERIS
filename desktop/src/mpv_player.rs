@@ -111,7 +111,7 @@ impl MpvPlayer {
                 }
                 return Ok::<Value, anyhow::Error>(response.get("data").cloned().unwrap_or(Value::Null));
             }
-        }).await.context("mpv не ответил на команду за 3 секунды")??
+        }).await.context("mpv не ответил на команду за 3 секунды")?
     }
 
     async fn command_ok(&mut self, command: Value) -> Result<()> {
