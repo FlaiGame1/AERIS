@@ -172,6 +172,11 @@ impl eframe::App for AerisDesktop {
                             ui.label(egui::RichText::new("03").color(accent).strong());
                             ui.label(egui::RichText::new("После первого сопряжения телефон запоминается").color(egui::Color32::WHITE));
                         });
+                        ui.add_space(7.0);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("04").color(accent).strong());
+                            ui.label(egui::RichText::new("Если Telegram недоступен — открой браузерную загрузку из блока устройства").color(egui::Color32::WHITE));
+                        });
                     });
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
@@ -190,8 +195,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([440.0, 570.0])
-            .with_min_inner_size([380.0, 500.0])
+            .with_inner_size([460.0, 640.0])
+            .with_min_inner_size([400.0, 560.0])
             .with_title("AERIS Desktop"),
         ..Default::default()
     };
