@@ -24,6 +24,7 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Chunked transfer (1 MiB chunks) with SHA-256 integrity verification.
 - Audio and video playback through the bundled mpv engine.
 - Phone controls: pause/resume, stop, seek backward/forward and volume up/down.
+- Plugin actions in Telegram message menus and profile action menus (profile-track extraction depends on what the Telegram client exposes to plugins).
 - Remote playback status: current title, playback position, duration and pause state.
 - Received files are stored under the Windows temporary AERIS folder.
 
@@ -31,7 +32,7 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 
 AERIS is in early development. The Android plugin currently reads media from the Telegram client's local cache, so the media must be downloaded in Telegram before sending. The actual transfer from phone to PC is local and does not pass through Telegram servers. If Telegram is blocked but the file is already cached on the phone and both devices can communicate over the local network, transfer can still work.
 
-A standalone Android companion app is now included under `android/`. It can send files selected with Android Storage Access Framework or shared from another app, so media transfer itself does not depend on Telegram being reachable. It also provides playback controls. Build it with Android Studio (open the `android/` folder, JDK 17, Android SDK 35). The Windows player currently uses a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
+The Telegram plugin has a profile action-menu entry; direct access to profile music is best-effort because the client SDK does not guarantee that the selected profile track is exposed as a downloadable message. The Telegram media-player overflow/three-dot menu is not yet integrated. A standalone Android companion app is now included under `android/`. It can send files selected with Android Storage Access Framework or shared from another app, so media transfer itself does not depend on Telegram being reachable. It also provides playback controls. Build it with Android Studio (open the `android/` folder, JDK 17, Android SDK 35). The Windows player currently uses a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
 
 ### Security
 
@@ -76,6 +77,7 @@ AERIS — открытый проект для передачи видео и м
 - Передача блоками по 1 МиБ с проверкой целостности SHA-256.
 - Воспроизведение аудио и видео через движок mpv, включённый в поставку.
 - Управление с телефона: пауза/продолжение, остановка, перемотка назад/вперёд и изменение громкости.
+- Действия плагина в меню сообщений Telegram и меню действий профиля (получение самого профильного трека зависит от того, предоставляет ли клиент его плагинам).
 - Запрос состояния плеера с телефона: название медиа, текущая позиция, длительность и состояние паузы.
 - Полученные файлы сохраняются во временную папку AERIS в Windows.
 
@@ -83,7 +85,7 @@ AERIS — открытый проект для передачи видео и м
 
 AERIS всё ещё находится на ранней стадии. Android-плагин пока получает файлы из локального кэша Telegram, поэтому медиа сначала нужно скачать в Telegram. Но сама передача с телефона на компьютер идёт напрямую по локальной сети и не проходит через серверы Telegram. Если Telegram заблокирован, но файл уже находится в кэше телефона и устройства видят друг друга по локальной сети, передача всё равно может работать.
 
-Отдельное Android-приложение-компаньон добавлено в `android/`: в нём есть выбор файла через системный файловый диалог Android, приём файлов через «Поделиться» из других приложений и кнопки управления плеером. Это позволяет передавать на ПК локальные файлы телефона, даже если Telegram недоступен. Открой папку `android/` в Android Studio (JDK 17, Android SDK 35), чтобы собрать APK. Видео пока воспроизводится в отдельном окне mpv, а не во встроенной поверхности AERIS. Возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
+У плагина есть пункт в меню действий профиля, но прямое получение профильной музыки работает только если клиент передаёт сам трек через SDK. Встраивание в меню «три точки» встроенного Telegram-медиаплеера пока не реализовано. Отдельное Android-приложение-компаньон добавлено в `android/`: в нём есть выбор файла через системный файловый диалог Android, приём файлов через «Поделиться» из других приложений и кнопки управления плеером. Это позволяет передавать на ПК локальные файлы телефона, даже если Telegram недоступен. Открой папку `android/` в Android Studio (JDK 17, Android SDK 35), чтобы собрать APK. Видео пока воспроизводится в отдельном окне mpv, а не во встроенной поверхности AERIS. Возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
 
 ### Безопасность
 
