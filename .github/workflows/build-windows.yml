@@ -12,6 +12,7 @@ on:
       - ".github/workflows/build-windows.yml"
   push:
     branches: [main, feature/native-player-and-remote-control, feature/standalone-lan-uploader-v2]
+    tags: ["v*"]
     paths:
       - "desktop/**"
       - "protocol/**"
@@ -118,8 +119,8 @@ jobs:
       - name: Upload portable Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: AERIS-Desktop-windows-x64
-          path: dist/AERIS-Desktop-windows-x64.zip
+          name: AERIS-Desktop-windows-x64-1.0.0
+          path: dist/AERIS-Desktop-windows-x64-1.0.0.zip
           if-no-files-found: error
 
       - name: Publish GitHub Release
