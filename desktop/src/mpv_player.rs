@@ -125,12 +125,15 @@ impl MpvPlayer {
     pub async fn playback_status(&mut self) -> Result<Value> {
         let path = self.property("path").await.unwrap_or(Value::Null);
         let title = self.property("media-title").await.unwrap_or(Value::Null);
+        let metadata = self.property("metadata").await.unwrap_or(Value::Null);
+        let metadata_title = metadata.get("title").cloned().unwrap_or(Value::Null);
+        let metadata_artist = metadata.get("artist").cloned().or_else(|| metadata.get("performer").cloned()).unwrap_or(Value::Null);
         let duration = self.property("duration").await.unwrap_or(Value::Null);
         let position = self.property("time-pos").await.unwrap_or(Value::Null);
         let paused = self.property("pause").await.unwrap_or(Value::Bool(false));
         let volume = self.property("volume").await.unwrap_or(Value::Null);
         let idle = self.property("idle-active").await.unwrap_or(Value::Bool(true));
-        Ok(json!({"path":path,"title":title,"duration":duration,"position":position,"paused":paused,"volume":volume,"idle":idle}))
+        Ok(json!({"path":path,"title":title,"metadata_title":metadata_title,"metadata_artist":metadata_artist,"duration":duration,"position":position,"paused":paused,"volume":volume,"idle":idle}))
     }
 
     pub async fn play_file(&mut self, path: &Path) -> Result<()> {
