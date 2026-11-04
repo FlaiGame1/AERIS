@@ -40,9 +40,9 @@ AERIS/
 
 ### Development status
 
-AERIS is in early development. The previous NEXUS CAST prototype is the starting point for the desktop receiver; its experimental Google Cast implementation will be replaced by the native AERIS protocol. The Android plugin and protocol are being developed alongside it.
+AERIS is in early development. The Windows app now starts the first native AERIS Protocol v1 WebSocket receiver with a temporary pairing code. The plugin has connection settings and a pairing/ping test. Actual media playback, Telegram media extraction, encrypted transport and persistent pairing are not implemented yet.
 
-Do not consider development builds stable or secure for use on untrusted networks.
+The old Google Cast prototype remains in the repository as inactive reference code, but it is no longer used by the active desktop application. Development builds use unencrypted WebSocket and must only be tested on a trusted private network.
 
 ### Releases
 
@@ -90,9 +90,9 @@ AERIS/
 
 ### Состояние разработки
 
-AERIS находится на ранней стадии разработки. В качестве основы приложения для Windows используется предыдущий прототип NEXUS CAST. Его экспериментальная реализация Google Cast будет заменена собственным протоколом AERIS. Плагин для Android и протокол будут разрабатываться параллельно.
+AERIS находится на ранней стадии разработки. Приложение для Windows уже запускает первую реализацию собственного протокола AERIS v1 на WebSocket с временным кодом сопряжения. В плагине появились настройки подключения и проверка сопряжения/ping. Воспроизведение медиа, получение медиа из Telegram, шифрование соединения и постоянное сопряжение пока не реализованы.
 
-Тестовые сборки не следует считать стабильными или безопасными для использования в недоверенных сетях.
+Старый прототип Google Cast оставлен в репозитории как справочный код, но активное приложение его больше не использует. Тестовая версия использует незашифрованный WebSocket и предназначена только для доверенной домашней сети.
 
 ### Релизы
 
