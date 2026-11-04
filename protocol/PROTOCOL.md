@@ -1,6 +1,7 @@
 # AERIS Protocol v1
 
-**Status:** first-version candidate; not an official release  
+**AERIS release:** 1.0.0  
+**Protocol status:** stable v1 for the first public release  
 **Transport:** WebSocket over TCP  
 **Default ports:** 45872 (WebSocket), 45873 (browser upload)  
 **WebSocket path:** /ws
