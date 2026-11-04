@@ -117,7 +117,7 @@ A command receipt response uses command_ack:
 
 This acknowledgement does not mean playback succeeded. The media player integration and state events will be added in a later implementation step.
 
-## 6. Errors
+## 6. Media transfer\n\nAfter pairing, the plugin sends `begin_media` with `file_name`, `mime_type`, `size` and `sha256`. Desktop replies `media_ready`. The plugin then sends binary WebSocket frames of at most 1 MiB until the declared size is reached, followed by `finish_media`. Desktop verifies exact size and SHA-256, stores the file under the user's temporary directory (`%TEMP%\\AERIS\\Received` on Windows), and opens it through the system's default application. `cancel_media` cancels an in-progress transfer and removes the temporary file.\n\nThe current plugin can resolve a Telegram media path only when the file is already present in Telegram's local cache. The user may need to download the media in Telegram first. This first transfer implementation does not yet download uncached media itself.\n\n## 7. Errors
 
 Errors use this structure:
 
@@ -129,8 +129,8 @@ Errors use this structure:
 
 Initial error codes include invalid_json, message_too_large, unsupported_protocol, pairing_required, invalid_or_expired_code, invalid_media_url and unknown_message_type.
 
-## 7. Media transfer roadmap
+## 8. Media transfer roadmap
 
 A media URL is useful only if the Windows PC can access it. Telegram-private media URLs often cannot be reused outside the Android app.
 
-The protocol will therefore gain a separate authenticated media-transfer flow for private Telegram media. It must support bounded chunk sizes, integrity checks, cancellation and cleanup of temporary files. Arbitrary filesystem paths or shell commands will never be accepted from the phone.
+Future work: native AERIS playback UI, player-state events, play/pause/seek/volume control, direct downloading of uncached Telegram media, media-player overflow-menu integration, encryption, persistent pairing and stronger session management. Arbitrary filesystem paths or shell commands will never be accepted from the phone.
