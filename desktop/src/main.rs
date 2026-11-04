@@ -3,7 +3,6 @@
 mod aeris_protocol;
 
 use eframe::egui;
-use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 use tokio::sync::Notify;
@@ -176,7 +175,7 @@ impl eframe::App for AerisDesktop {
                 ui.add_space(18.0);
                 ui.vertical_centered(|ui| {
                     ui.label(egui::RichText::new("AERIS Protocol v1 • WebSocket • LAN").size(11.0).color(muted));
-                    ui.label(egui::RichText::new("Тестовая сборка: воспроизведение медиа ещё не подключено").size(10.0).color(muted));
+                    ui.label(egui::RichText::new("AERIS 0.4 • Передача файлов • Запуск в системном плеере").size(10.0).color(muted));
                 });
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
