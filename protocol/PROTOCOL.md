@@ -1,123 +1,76 @@
 # AERIS Protocol v1
 
-**Status:** early development implementation  
+**Status:** early implementation  
 **Transport:** WebSocket over TCP  
 **Default port:** 45872  
 **WebSocket path:** /ws
 
 ## 1. Overview
 
-AERIS Plugin and AERIS Desktop communicate directly over the local network. Telegram servers are not part of the AERIS transport path.
+AERIS sends media from an Android Telegram client to AERIS Desktop over the local network. Desktop plays received files using the bundled mpv runtime. The phone can control the active playback session.
 
-Implemented:
-- WebSocket negotiation (hello / hello_ack);
-- six-character pairing code, valid until the Desktop receiver is stopped;
-- session pairing (pair / pair_result);
-- ping/pong;
-- verified media transfer in binary chunks;
-- audio playback in AERIS Desktop;
-- remote audio controls (play, pause, stop, seek and volume).
+The active implementation includes:
+- WebSocket negotiation and pairing;
+- persistent device tokens saved on the desktop and in the plugin settings;
+- chunked media transfer with SHA-256 verification;
+- mpv playback for local audio and video files;
+- play, pause, toggle, stop, seek and volume commands.
 
 ## 2. Network and security
 
-Desktop binds to a detected private LAN address. The transport currently uses unencrypted ws:// and a temporary pairing code generated at receiver startup. Use only on a trusted private Wi-Fi network. Do not expose TCP port 45872 to the public internet.
+Desktop listens on the detected private LAN address at TCP port 45872. The first pairing uses a six-character code displayed by Desktop. The plugin then stores a random device token; Desktop persists the token in %APPDATA%\AERIS\paired_devices.json.
 
-Encrypted transport, persistent device credentials and pairing revocation remain future work.
+The transport is currently unencrypted ws://. Pairing tokens are bearer credentials and are stored locally without encryption. Use AERIS only on a trusted private network. Do not expose port 45872 to the public internet. Removing a device token from the desktop paired-devices file revokes that device.
 
-The pairing code remains valid until the receiver is stopped so the phone can reconnect for each control command. Restarting Desktop generates a new code.
+The pairing code expires three minutes after the receiver starts. Already paired devices can reconnect using their saved token.
 
 ## 3. Message envelope
 
-Every text message is a UTF-8 JSON object:
-
-    {
-      "protocol": "aeris",
-      "version": 1,
-      "type": "hello",
-      "id": "request-id",
-      "payload": {}
-    }
-
-- protocol: always "aeris".
-- version: integer protocol version, currently 1.
-- type: message type.
-- id: optional request identifier echoed by the response.
-- payload: message-specific object.
-
-Maximum incoming text message size: 64 KiB. Maximum binary chunk size: 1 MiB.
+Messages are UTF-8 JSON objects with protocol, version, type, optional id and payload fields. Maximum incoming text message size: 64 KiB.
 
 ## 4. Connection and pairing
 
-1. Desktop starts the receiver and displays ws://<LAN-IP>:45872/ws and a six-character code.
-2. Plugin opens a WebSocket connection and sends hello.
-3. Desktop replies hello_ack.
-4. Plugin sends pair with the displayed code.
-5. Desktop replies pair_result.
-6. The paired connection may transfer media or issue player commands.
+1. Desktop starts the receiver and displays its LAN address and six-character pairing code.
+2. Plugin connects to ws://<LAN-IP>:45872/ws.
+3. Plugin sends hello; Desktop replies hello_ack.
+4. On first connection, plugin sends pair with the displayed code.
+5. Desktop replies pair_result with a random device token.
+6. Plugin stores the token in its settings and reuses it for later connections. Desktop stores the token under the current Windows user's AppData folder.
 
-A new connection must pair again with the current code. The code remains valid until the Desktop receiver is stopped.
+For subsequent connections, pair contains a token instead of the short-lived code.
 
 ## 5. Media transfer
 
-After pairing, the plugin sends begin_media with:
-- file_name
-- mime_type
-- size
-- sha256
+After pairing, the plugin sends begin_media with file_name, mime_type, size and sha256. Desktop replies media_ready. The plugin sends binary WebSocket frames of at most 1 MiB, then sends finish_media. Desktop verifies the exact byte count and SHA-256, saves the file under %TEMP%\AERIS\Received, and asks mpv to play it.
 
-Desktop replies media_ready. The plugin sends binary WebSocket frames of at most 1 MiB and then finish_media. Desktop verifies the exact byte count and SHA-256 before playback.
-
-The current plugin can resolve a Telegram media path only when the file is already present in Telegram's local cache. A file that has not been downloaded to the phone cannot yet be transferred. Telegram blocking does not affect the direct phone-to-PC LAN connection, but it can prevent Telegram from downloading uncached media.
-
-Files are limited to 512 MiB and stored under %TEMP%\AERIS\Received.
+The maximum media size is 512 MiB. The plugin currently resolves media only from the Telegram client's local cache. Media must be downloaded in Telegram first. A separate Android file picker / standalone sender is planned so AERIS can work without Telegram.
 
 ## 6. Playback commands
 
 All commands require a paired session.
 
-| Type | Direction | Payload | Purpose |
-|---|---|---|---|
-| play | Plugin → Desktop | {} | Resume current AERIS audio |
-| pause | Plugin → Desktop | {} | Pause current AERIS audio |
-| stop | Plugin → Desktop | {} | Stop current AERIS audio |
-| seek | Plugin → Desktop | position (seconds) | Seek within current audio |
-| set_volume | Plugin → Desktop | volume (0.0–1.0) | Set AERIS audio volume |
-| ping | Plugin → Desktop | {} | Connection check |
+| Type | Payload | Purpose |
+|---|---|---|
+| play | empty | Resume playback |
+| pause | empty | Pause playback |
+| toggle_pause | empty | Toggle pause / resume |
+| stop | empty | Stop current media |
+| seek | position in seconds | Seek to an absolute position |
+| seek_relative | offset in seconds | Seek by a relative offset |
+| set_volume | volume from 0.0 to 1.0 | Set volume |
+| volume_delta | delta in percentage points | Change volume |
+| ping | empty | Connection check |
 
-Successful commands receive command_result:
+Successful player commands return command_result with payload.success = true. A playback-engine failure returns an error message.
 
-    {
-      "protocol": "aeris",
-      "version": 1,
-      "type": "command_result",
-      "id": "pause-1",
-      "payload": {"success": true, "command": "pause"}
-    }
+## 7. Desktop playback engine
 
-Failed commands receive error with code player_command_failed or another relevant error code.
+AERIS Desktop launches the bundled mpv.exe on the first playback request and controls it over a local Windows named pipe. The mpv directory must remain beside aeris-desktop.exe. mpv's IPC endpoint is local to the desktop process and is not exposed on the LAN.
 
-AERIS Desktop currently plays supported audio formats internally. Video and unsupported media formats are opened with the Windows default application; remote controls for external video players are not implemented.
+## 8. Current limitations
 
-## 7. Close and errors
-
-The plugin sends a WebSocket close frame with status code 1000 and waits briefly for the Desktop close response. A normal close should not produce a connection-reset warning.
-
-Errors use this structure:
-
-    {
-      "protocol": "aeris",
-      "version": 1,
-      "type": "error",
-      "id": "request-id",
-      "payload": {"code": "player_command_failed", "message": "No media is playing"}
-    }
-
-## 8. Roadmap
-
-- automatic download of uncached Telegram media;
-- native video playback and remote video controls;
-- Telegram media-player overflow-menu and profile music integration;
-- playback-state synchronization;
-- encrypted transport, persistent device credentials and pairing revocation.
-
-Arbitrary filesystem paths or shell commands are never accepted from the phone.
+- Telegram media must already be downloaded and present in the app cache.
+- A standalone Android file picker and independent Android sender are not implemented yet.
+- The player uses a separate mpv playback window rather than an embedded AERIS video surface.
+- Transport encryption, device management UI, transfer resume and token revocation UI are future work.
+- Playback is limited to files supported by the bundled mpv build.
