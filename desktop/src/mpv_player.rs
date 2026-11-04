@@ -127,3 +127,12 @@ fn locate_mpv() -> PathBuf {
     ];
     candidates.into_iter().find(|path| path.is_file()).unwrap_or_else(|| directory.join("mpv").join("mpv.exe"))
 }
+
+impl Drop for MpvPlayer {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
