@@ -23,10 +23,6 @@ struct AerisDesktop {
     track_title: String,
     track_artist: String,
     connected_device: String,
-    cover_path: Option<std::path::PathBuf>,
-    cover_loaded_path: Option<std::path::PathBuf>,
-    cover_texture: Option<egui::TextureHandle>,
-    cover_tint: egui::Color32,
     playback_position: f64,
     playback_duration: f64,
     cover_path: String,
@@ -49,10 +45,6 @@ impl Default for AerisDesktop {
             track_title: "Ожидание воспроизведения".to_owned(),
             track_artist: "AERIS • Desktop player".to_owned(),
             connected_device: String::new(),
-            cover_path: None,
-            cover_loaded_path: None,
-            cover_texture: None,
-            cover_tint: egui::Color32::from_rgb(71, 52, 104),
             playback_position: 0.0,
             playback_duration: 0.0,
             cover_path: String::new(),
@@ -119,6 +111,12 @@ impl AerisDesktop {
                             if let Ok(state) = serde_json::from_str::<serde_json::Value>(payload) {
                                 self.playback_position = state.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
                                 self.playback_duration = state.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
+                                if let Some(title) = state.get("metadata_title").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()) {
+                                    if self.track_title == "Ожидание воспроизведения" { self.track_title = title.to_owned(); }
+                                }
+                                if let Some(artist) = state.get("metadata_artist").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()) {
+                                    if self.track_artist == "AERIS • Desktop player" { self.track_artist = artist.to_owned(); }
+                                }
                             }
                             continue;
                         }
@@ -186,12 +184,16 @@ impl AerisDesktop {
             let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 22.0), egui::Sense::hover());
             let line_y = timeline.center().y;
             let progress = if self.playback_duration > 0.0 { (self.playback_position / self.playback_duration).clamp(0.0, 1.0) as f32 } else { 0.0 };
-            let knob_x = timeline.left() + timeline.width() * progress;
-            ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(timeline.left(), line_y - 2.0), egui::pos2(timeline.right(), line_y + 2.0)), 3.0, egui::Color32::from_rgb(91, 82, 107));
+            let radius = 7.0;
+            let track_left = timeline.left() + radius;
+            let track_right = timeline.right() - radius;
+            let track_width = (track_right - track_left).max(1.0);
+            let knob_x = track_left + track_width * progress;
+            ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(track_left, line_y - 2.0), egui::pos2(track_right, line_y + 2.0)), 3.0, egui::Color32::from_rgb(91, 82, 107));
             if progress > 0.0 {
                 ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(track_left, line_y - 2.0), egui::pos2(knob_x, line_y + 2.0)), 3.0, egui::Color32::from_rgb(194, 164, 235));
             }
-            ui.painter().circle_filled(egui::pos2(knob_x, line_y), 6.5, egui::Color32::from_rgb(235, 218, 255));
+            ui.painter().circle_filled(egui::pos2(knob_x, line_y), radius, egui::Color32::from_rgb(235, 218, 255));
             if response.hovered() {
                 if let Some(pointer) = response.hover_pos() {
                     let x = pointer.x.clamp(track_left, track_right);
@@ -281,25 +283,7 @@ impl eframe::App for AerisDesktop {
                 }
             }
         }
-        if let Some(path) = self.cover_path.clone() {
-            if self.cover_loaded_path.as_ref() != Some(&path) {
-                self.cover_texture = None;
-                if let Ok(bytes) = std::fs::read(&path) {
-                    if let Ok(image) = image::load_from_memory(&bytes) {
-                        let rgba = image.to_rgba8();
-                        let tiny = image::imageops::resize(&rgba, 1, 1, image::imageops::FilterType::Triangle);
-                        let pixel = tiny.get_pixel(0, 0).0;
-                        self.cover_tint = egui::Color32::from_rgb(pixel[0], pixel[1], pixel[2]);
-                        let size = [rgba.width() as usize, rgba.height() as usize];
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
-                        self.cover_texture = Some(ctx.load_texture("aeris-album-cover", color_image, egui::TextureOptions::LINEAR));
-                    }
-                }
-                self.cover_loaded_path = Some(path);
-            }
-        }
-        let tint = self.cover_tint;
-        let bg = egui::Color32::from_rgb((24 + tint.r() as u16 / 8) as u8, (22 + tint.g() as u16 / 9) as u8, (32 + tint.b() as u16 / 7) as u8);
+        let bg = egui::Color32::from_rgb(24, 22, 32);
         let muted = egui::Color32::from_rgb(173, 163, 190);
         egui::CentralPanel::default().frame(egui::Frame::none().fill(bg).inner_margin(egui::Margin::same(24.0))).show(ctx, |ui| {
             let panel_rect = ui.max_rect();
