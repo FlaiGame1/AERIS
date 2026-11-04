@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -242,7 +242,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.1 loaded")
+        self.logger.info("AERIS 0.3.2 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -270,6 +270,7 @@ class AerisPlugin(BasePlugin):
             Input(key="pairing_code", text="Код сопряжения", default="", subtext="Нужен только при первом подключении или сбросе сопряжения.", icon="msg_secret", on_change=self._save_code),
             Text(text="Проверить подключение", subtext="Подключиться и запомнить это устройство.", icon="msg_link", accent=True, on_click=self._test),
             Divider(text="Управление плеером"),
+            Text(text="Что сейчас играет?", subtext="Получить название, позицию, длительность и состояние плеера.", icon="msg2_devices", on_click=self._get_status),
             Text(text="Продолжить воспроизведение", subtext="Снять паузу на компьютере.", icon="msg2_devices", on_click=self._play),
             Text(text="Поставить на паузу", subtext="Приостановить текущую музыку или видео.", icon="msg2_devices", on_click=self._pause),
             Text(text="Пауза / продолжить", subtext="Переключить состояние воспроизведения.", icon="msg2_devices", on_click=self._toggle_pause),
@@ -279,7 +280,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.1", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.2", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -326,9 +327,24 @@ class AerisPlugin(BasePlugin):
                 self.set_setting("device_token", token)
                 if command:
                     response = _send_msg(sock, command, payload or {}, "control")
-                    if response.get("type") != "command_result" or not response.get("payload", {}).get("success"):
+                    if command == "get_status":
+                        if response.get("type") != "playback_status":
+                            raise RuntimeError("ПК не вернул состояние плеера")
+                        state = response.get("payload", {})
+                        title = state.get("title") or state.get("path") or "Ничего не воспроизводится"
+                        position = state.get("position")
+                        duration = state.get("duration")
+                        paused = state.get("paused", False)
+                        if isinstance(position, (int, float)) and isinstance(duration, (int, float)):
+                            def stamp(value):
+                                value = max(0, int(value))
+                                return "{}:{:02d}".format(value // 60, value % 60)
+                            title = "{} · {} / {}".format(title, stamp(position), stamp(duration))
+                        title = "{}{}".format("⏸ " if paused else "▶ ", title)
+                        BulletinHelper.show_success(str(title)[:180])
+                    elif response.get("type") != "command_result" or not response.get("payload", {}).get("success"):
                         raise RuntimeError("ПК не подтвердил выполнение команды")
-                if show_success:
+                if show_success and command != "get_status":
                     BulletinHelper.show_success("AERIS: команда выполнена" if command else "AERIS подключён и запомнил устройство")
             except Exception as error:
                 self.logger.exception("AERIS command failed")
@@ -343,6 +359,9 @@ class AerisPlugin(BasePlugin):
 
     def _control(self, command, payload=None):
         self._run_connection_action(command, payload)
+
+    def _get_status(self, _view=None):
+        self._control("get_status")
 
     def _play(self, _view=None):
         self._control("play")
