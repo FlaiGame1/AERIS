@@ -29,7 +29,7 @@ def _send_frame(sock,payload,opcode=1):
  if n<126: head.append(0x80|n)
  elif n<65536: head.append(0x80|126);head.extend(struct.pack("!H",n))
  else: head.append(0x80|127);head.extend(struct.pack("!Q",n))
- masked=bytes(v^mask[i%4] for i,v in enumerate(payload));sock.sendall(bytes(head)+masked)
+ masked=bytes(v^mask[i%4] for i,v in enumerate(payload));sock.sendall(bytes(head)+mask+masked)
 def _recv_text(sock):
  while True:
   a,b=_read_exact(sock,2);op=a&15;n=b&127
