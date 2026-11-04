@@ -94,15 +94,15 @@ fn player_worker(rx: mpsc::Receiver<Command>) {
             }
             Command::Resume(reply) => {
                 let result = match sink.as_ref() {
-                    Some(s) => { s.play(); Ok(()) }
-                    None => Err("Сейчас ничего не загружено".into()),
+                    Some(s) if !s.empty() => { s.play(); Ok(()) }
+                    _ => Err("Сейчас ничего не загружено".into()),
                 };
                 (reply, result)
             }
             Command::Pause(reply) => {
                 let result = match sink.as_ref() {
-                    Some(s) => { s.pause(); Ok(()) }
-                    None => Err("Сейчас ничего не воспроизводится".into()),
+                    Some(s) if !s.empty() => { s.pause(); Ok(()) }
+                    _ => Err("Сейчас ничего не воспроизводится".into()),
                 };
                 (reply, result)
             }
@@ -115,7 +115,7 @@ fn player_worker(rx: mpsc::Receiver<Command>) {
             }
             Command::Seek(seconds, reply) => {
                 let result = match sink.as_ref() {
-                    Some(s) if seconds.is_finite() && seconds >= 0.0 && seconds <= 86_400.0 =>
+                    Some(s) if !s.empty() && seconds.is_finite() && seconds >= 0.0 && seconds <= 86_400.0 =>
                         s.try_seek(Duration::from_secs_f64(seconds))
                             .map_err(|e| format!("Перемотка не поддерживается этим файлом: {e}")),
                     Some(_) => Err("Некорректная позиция перемотки".into()),
