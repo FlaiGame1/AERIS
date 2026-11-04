@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.7"
+__version__ = "0.3.8"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -180,37 +180,131 @@ def _connect(host, port, code, device_token=""):
 
 
 def _file_object_path(file_object):
+    """Return a readable plaintext path from Telegram's own FileLoader result."""
     if file_object is None:
         return None
-    if hasattr(file_object, "getAbsolutePath"):
-        path = str(file_object.getAbsolutePath())
-    elif hasattr(file_object, "getPath"):
-        path = str(file_object.getPath())
-    else:
-        path = os.fspath(str(file_object))
-    if os.path.isfile(path) and os.path.getsize(path) > 0:
-        return os.path.abspath(path)
+
+    path = None
+    try:
+        if hasattr(file_object, "getAbsolutePath"):
+            path = str(file_object.getAbsolutePath())
+        elif hasattr(file_object, "getPath"):
+            path = str(file_object.getPath())
+        else:
+            path = os.fspath(str(file_object))
+    except Exception:
+        return None
+
+    if not path:
+        return None
+
+    # A client may keep an encrypted cache blob next to its plaintext target.
+    # Never send the raw encrypted blob to the desktop player as if it were media.
+    if path.lower().endswith(".enc"):
+        raise ValueError("Telegram FileLoader вернул зашифрованный .enc-файл, а не готовое медиа")
+
+    try:
+        exists = file_object.exists() if hasattr(file_object, "exists") else os.path.isfile(path)
+        is_file = file_object.isFile() if hasattr(file_object, "isFile") else os.path.isfile(path)
+        size = int(file_object.length()) if hasattr(file_object, "length") else os.path.getsize(path)
+        readable = os.access(path, os.R_OK)
+        if exists and is_file and size > 0 and readable:
+            return os.path.abspath(path)
+    except Exception:
+        pass
     return None
 
 
 def _media_path(message_or_document, account=None):
+    """Resolve media through the active Telegram client's FileLoader.
+
+    No AyuGram/exteraGram-specific storage directory is assumed. We ask the
+    client for the message path first, then for its underlying attachment.
+    Only already-local files are accepted; this function never starts a download.
+    """
     from client_utils import get_file_loader
-    owner = getattr(message_or_document, "messageOwner", None)
-    loader = get_file_loader(account) if account is not None else get_file_loader()
-    for obj in (message_or_document, owner):
-        if obj is None:
-            continue
-        for method_name in ("getPathToMessage", "getPathToAttach"):
+
+    def safe_get(obj, name):
+        try:
+            return getattr(obj, name, None)
+        except Exception:
+            return None
+
+    owner = safe_get(message_or_document, "messageOwner")
+    message_candidates = []
+    attachment_candidates = []
+
+    for candidate in (message_or_document, owner):
+        if candidate is not None and candidate not in message_candidates:
+            message_candidates.append(candidate)
+
+        media = safe_get(candidate, "media") if candidate is not None else None
+        document = safe_get(media, "document") if media is not None else None
+        if document is not None and document not in attachment_candidates:
+            attachment_candidates.append(document)
+
+        webpage = safe_get(media, "webpage") if media is not None else None
+        web_document = safe_get(webpage, "document") if webpage is not None else None
+        if web_document is not None and web_document not in attachment_candidates:
+            attachment_candidates.append(web_document)
+
+        # Some plugin callbacks pass a document directly instead of a MessageObject.
+        if candidate is not None and safe_get(candidate, "id") is not None:
+            class_name = str(type(candidate))
+            if "Document" in class_name and candidate not in attachment_candidates:
+                attachment_candidates.append(candidate)
+
+        getter = safe_get(candidate, "getDocument") if candidate is not None else None
+        if callable(getter):
             try:
-                file_object = getattr(loader, method_name)(obj)
-                path = _file_object_path(file_object)
-                if path:
-                    return path
+                document = getter()
+                if document is not None and document not in attachment_candidates:
+                    attachment_candidates.append(document)
             except Exception:
                 pass
-    raise FileNotFoundError("Файл не найден в кэше Telegram. Сначала полностью скачай видео или аудио.")
 
+    try:
+        loader = get_file_loader(account) if account is not None else get_file_loader()
+    except Exception:
+        loader = get_file_loader()
 
+    attempted = []
+    for message in message_candidates:
+        try:
+            file_object = loader.getPathToMessage(message)
+            path = _file_object_path(file_object)
+            if path:
+                return path
+            attempted.append("getPathToMessage: путь отсутствует или файл недоступен")
+        except Exception as error:
+            attempted.append("getPathToMessage: {}".format(type(error).__name__))
+
+    for attachment in attachment_candidates:
+        try:
+            file_object = loader.getPathToAttach(attachment)
+            path = _file_object_path(file_object)
+            if path:
+                return path
+            attempted.append("getPathToAttach: путь отсутствует или файл недоступен")
+        except Exception as error:
+            attempted.append("getPathToAttach: {}".format(type(error).__name__))
+
+        # Telegram's FileLoader also exposes a force-cache overload. It is a
+        # lookup only; it does not initiate a network download.
+        try:
+            file_object = loader.getPathToAttach(attachment, True)
+            path = _file_object_path(file_object)
+            if path:
+                return path
+        except Exception as error:
+            attempted.append("getPathToAttach(forceCache): {}".format(type(error).__name__))
+
+    detail = "; ".join(attempted[-6:]) or "в объекте сообщения не найден документ"
+    raise FileNotFoundError(
+        "FileLoader клиента не вернул доступный локальный файл. "
+        "AERIS не ищет папки AyuGram/exteraGram и не читает зашифрованные blobs. "
+        "Диагностика: {}".format(detail)
+    )
 def _transfer(host, port, code, path, device_token=""):
     size = os.path.getsize(path)
     if size <= 0 or size > MAX_MEDIA_BYTES:
@@ -257,7 +351,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.7 loaded")
+        self.logger.info("AERIS 0.3.8 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -308,7 +402,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.7", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.8", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
