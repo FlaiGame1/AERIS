@@ -132,6 +132,10 @@ impl AerisDesktop {
                             self.lan_address = line.trim_start_matches("Адрес:").trim().to_owned();
                         }
                         if let Some(name) = message.strip_prefix("Воспроизведение: ") {
+                            self.cover_path.clear();
+                            self.cover_loaded_path.clear();
+                            self.cover_texture = None;
+                            self.background_texture = None;
                             let mut parts = name.splitn(2, " · ");
                             self.track_title = parts.next().unwrap_or(name).to_owned();
                             self.track_artist = parts.next().unwrap_or("Неизвестный исполнитель").to_owned();
