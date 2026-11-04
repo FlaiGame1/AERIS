@@ -3,10 +3,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{fs::{self, File}, io::{Read, Write}, net::SocketAddr, path::PathBuf, sync::{Arc, mpsc}, time::Duration};
+use std::{fs::{self, File}, io::{Read, Write}, net::SocketAddr, path::PathBuf, sync::{Arc, Mutex, mpsc}, time::Duration};
 use tokio::{net::{TcpListener, TcpStream}, sync::Notify, time::Instant};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use uuid::Uuid;
+
+use crate::audio_player::AudioPlayer;
 
 const PROTOCOL_VERSION:u8=1;
 const PORT:u16=45872;
@@ -25,14 +27,15 @@ pub async fn run_server(shutdown:Arc<Notify>,status:mpsc::Sender<String>)->Resul
  let listener=TcpListener::bind(SocketAddr::new(ip,PORT)).await.with_context(||format!("Не удалось открыть порт {PORT}"))?;
  let pairing_code=Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
  let expires_at=Instant::now()+PAIRING_LIFETIME;
+ let player=Arc::new(Mutex::new(AudioPlayer::default()));
  let _=status.send(format!("AERIS Protocol v1 запущен\nАдрес: ws://{ip}:{PORT}/ws\nКод подключения: {pairing_code}\nКод действует 3 минуты"));
  loop { tokio::select! {
   _=shutdown.notified()=>{let _=status.send("Сервер AERIS остановлен".into());break;}
-  accepted=listener.accept()=>{let(stream,peer)=accepted.context("Ошибка входящего TCP-подключения")?;let code=pairing_code.clone();let status=status.clone();tokio::spawn(async move{if let Err(e)=handle_client(stream,peer,code,expires_at,status).await{tracing::warn!("AERIS client {peer} disconnected: {e:#}");}});}
+  accepted=listener.accept()=>{let(stream,peer)=accepted.context("Ошибка входящего TCP-подключения")?;let code=pairing_code.clone();let status=status.clone();let player=player.clone();tokio::spawn(async move{if let Err(e)=handle_client(stream,peer,code,expires_at,status,player).await{tracing::warn!("AERIS client {peer} disconnected: {e:#}");}});}
  }}
  Ok(())
 }
-async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expires_at:Instant,status:mpsc::Sender<String>)->Result<()>{
+async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expires_at:Instant,status:mpsc::Sender<String>,player:Arc<Mutex<AudioPlayer>>)->Result<()>{
  let ws=accept_async(stream).await.context("WebSocket handshake failed")?;let(mut write,mut read)=ws.split();let mut paired=false;let mut incoming:Option<IncomingMedia>=None;
  while let Some(message)=read.next().await {match message.context("WebSocket read failed")? {
   Message::Text(text)=>{
@@ -61,13 +64,38 @@ async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expi
      if t.received_size!=t.expected_size{let _=fs::remove_file(&t.path);send_error(&mut write,env.id,"size_mismatch","Передан не весь файл").await?;continue;}
      let mut f=File::open(&t.path)?;let mut h=Sha256::new();let mut buf=[0u8;65536];loop{let n=f.read(&mut buf)?;if n==0{break;}h.update(&buf[..n]);}
      if format!("{:x}",h.finalize())!=t.expected_hash{let _=fs::remove_file(&t.path);send_error(&mut write,env.id,"hash_mismatch","Проверка целостности не пройдена").await?;continue;}
-     let path=t.path.clone();let opened=tokio::task::spawn_blocking(move||open::that(path)).await;
-     let playback=match opened{Ok(Ok(()))=>"opened_with_system_player",Ok(Err(e))=>{let _=status.send(format!("Файл принят, ошибка открытия: {e}"));"received_open_failed"},Err(e)=>{let _=status.send(format!("Ошибка запуска плеера: {e}"));"received_open_failed"}};
+     let path=t.path.clone();
+     let playback=if is_audio_file(&t.file_name) {
+      let result=player.lock().map_err(|_|anyhow::anyhow!("Аудиоплеер заблокирован")).and_then(|mut p|p.play_file(&path,&t.file_name));
+      match result {Ok(())=>{let _=status.send(format!("Воспроизведение: {}",t.file_name));"playing_audio"},Err(e)=>{let _=status.send(format!("Встроенный плеер не смог открыть аудио: {e}"));match tokio::task::spawn_blocking(move||open::that(path)).await{Ok(Ok(()))=>"opened_with_system_player",_=>"received_open_failed"}}}
+     } else {
+      match tokio::task::spawn_blocking(move||open::that(path)).await{Ok(Ok(()))=>"opened_with_system_player",Ok(Err(e))=>{let _=status.send(format!("Файл принят, ошибка открытия: {e}"));"received_open_failed"},Err(e)=>{let _=status.send(format!("Ошибка запуска приложения: {e}"));"received_open_failed"}}
+     };
      let _=status.send(format!("Файл принят: {} · {}",t.file_name,t.mime_type));
      send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"media_complete","id":env.id,"payload":{"received":true,"playback":playback,"file_name":t.file_name}})).await?;
     }
+    "play"|"pause"|"stop"|"seek"|"set_volume"=>{
+     if !paired{send_error(&mut write,env.id,"pairing_required","Сначала выполните сопряжение").await?;continue;}
+     let result=(||->Result<Value>{
+      let mut p=player.lock().map_err(|_|anyhow::anyhow!("Аудиоплеер заблокирован"))?;
+      match env.kind.as_str(){
+       "play"=>p.resume()?,
+       "pause"=>p.pause()?,
+       "stop"=>p.stop(),
+       "seek"=>p.seek(env.payload.get("position").and_then(Value::as_f64).context("Не указана позиция position")?)?,
+       "set_volume"=>p.set_volume(env.payload.get("volume").and_then(Value::as_f64).context("Не указана громкость volume")? as f32)?,
+       _=>{}
+      }
+      Ok(p.status())
+     })();
+     match result{Ok(state)=>send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"command_ack","id":env.id,"payload":{"received":true,"player":state}})).await?,Err(e)=>send_error(&mut write,env.id,"player_command_failed",&e.to_string()).await?}
+    }
+    "get_status"=>{
+     if !paired{send_error(&mut write,env.id,"pairing_required","Сначала выполните сопряжение").await?;continue;}
+     let state=player.lock().map(|p|p.status()).unwrap_or_else(|_|json!({"state":"error"}));
+     send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"player_status","id":env.id,"payload":state})).await?;
+    }
     "cancel_media"=>{if let Some(t)=incoming.take(){drop(t.file);let _=fs::remove_file(t.path);}send_json(&mut write,json!({"protocol":"aeris","version":1,"type":"media_cancelled","id":env.id,"payload":{}})).await?;}
-    "play"|"pause"|"stop"|"seek"|"set_volume"=>send_error(&mut write,env.id,"player_control_unavailable","Управление встроенным плеером AERIS ещё не подключено").await?,
     other=>send_error(&mut write,env.id,"unknown_message_type",&format!("Неизвестная команда: {other}")).await?,
    }
   }
@@ -79,11 +107,12 @@ async fn handle_client(stream:TcpStream,peer:SocketAddr,pairing_code:String,expi
    if t.received_size%(8*1024*1024)<bytes.len() as u64{let _=status.send(format!("Получено {:.1} / {:.1} МБ",t.received_size as f64/1048576.0,t.expected_size as f64/1048576.0));}
   }
   Message::Ping(data)=>write.send(Message::Pong(data)).await?,
-  Message::Close(_)=>break,
+  Message::Close(frame)=>{let _=write.send(Message::Close(frame)).await;break;},
   _=>{}
  }}
  if let Some(t)=incoming.take(){drop(t.file);let _=fs::remove_file(t.path);}Ok(())
 }
+fn is_audio_file(name:&str)->bool{matches!(name.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str(),"mp3"|"wav"|"flac"|"ogg"|"oga"|"opus"|"m4a"|"aac")}
 async fn send_error<S>(sink:&mut S,id:Option<String>,code:&str,message:&str)->Result<()> where S:futures_util::Sink<Message>+Unpin,S::Error:std::error::Error+Send+Sync+'static{send_json(sink,json!({"protocol":"aeris","version":1,"type":"error","id":id,"payload":{"code":code,"message":message}})).await}
 async fn send_json<S>(sink:&mut S,value:Value)->Result<()> where S:futures_util::Sink<Message>+Unpin,S::Error:std::error::Error+Send+Sync+'static{sink.send(Message::Text(value.to_string().into())).await?;Ok(())}
 fn sanitize_name(input:&str)->String{let n=input.rsplit(|c| c == '/' || c == '\\').next().unwrap_or("media.bin");let s:String=n.chars().filter(|c|c.is_ascii_alphanumeric()||matches!(c,'.'|'-'|'_'|' '| '(' | ')')).take(100).collect();let s=s.trim().trim_matches('.');if s.is_empty(){"media.bin".into()}else{s.into()}}
