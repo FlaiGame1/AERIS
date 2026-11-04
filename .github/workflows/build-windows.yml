@@ -1,0 +1,72 @@
+name: Build NEXUS CAST for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/build-windows.yml"
+      - "licenses/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-cast-windows-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout NEXUS CAST
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build NEXUS CAST
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Prepare portable package
+        shell: pwsh
+        run: |
+          $stage = Join-Path $PWD "dist\NEXUS-CAST"
+          New-Item -ItemType Directory -Force "$stage\mpv", "$stage\licenses" | Out-Null
+
+          Copy-Item "target\x86_64-pc-windows-msvc\release\nexus-cast.exe" $stage
+          Copy-Item "licenses\OPENCHROMECAST-MIT.txt" "$stage\licenses\OPENCHROMECAST-MIT.txt"
+
+          # Portable MPV includes the runtime DLLs required for playback.
+          winget install --id mpv-player.mpv-CI.MSVC --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          $mpvExe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter mpv.exe -ErrorAction Stop | Select-Object -First 1
+          if (-not $mpvExe) { throw "mpv.exe was not found after installation" }
+          Get-ChildItem $mpvExe.DirectoryName -File | Where-Object { $_.Name -ne "mpv.pdb" } | Copy-Item -Destination "$stage\mpv"
+
+          @"
+          NEXUS CAST portable build
+
+          Run nexus-cast.exe. Keep the mpv folder beside it.
+          The Cast V2 receiver is embedded in nexus-cast.exe.
+
+          Third-party component:
+          OpenChromecast by Yukari Kaname — MIT License.
+          License text: licenses/OPENCHROMECAST-MIT.txt
+          Source: https://github.com/yukarikaname/openchromecast
+
+          MPV is distributed as a separate component with its own license files.
+          "@ | Set-Content -Encoding UTF8 "$stage\THIRD-PARTY-NOTICES.txt"
+
+          Compress-Archive -Path "$stage\*" -DestinationPath "dist\NEXUS-CAST-windows-x64.zip" -Force
+
+      - name: Upload portable Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXUS-CAST-windows-x64
+          path: dist/NEXUS-CAST-windows-x64.zip
+          if-no-files-found: error
