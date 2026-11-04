@@ -69,46 +69,47 @@ def _recv_text(sock):
             return json.loads(data.decode("utf-8"))
 
 
-def _close_ws(sock):
-    """Perform a normal WebSocket close handshake instead of resetting TCP."""
-    try:
-        _send_frame(sock, struct.pack("!H", 1000), 8)
-        sock.settimeout(2)
-        first, second = _read_exact(sock, 2)
-        size = second & 127
-        if size == 126:
-            size = struct.unpack("!H", _read_exact(sock, 2))[0]
-        elif size == 127:
-            size = struct.unpack("!Q", _read_exact(sock, 8))[0]
-        if second & 128:
-            _read_exact(sock, 4)
-        if size:
-            _read_exact(sock, min(size, 125))
-    except Exception:
-        pass
-    finally:
-        try:
-            sock.close()
-        except Exception:
-            pass
-
-
-def _send_msg(sock, kind, payload=None, req="aeris"):
+def _send_msg(sock, kind, payload=None, request_id="aeris"):
     _send_frame(sock, json.dumps({
-        "protocol": "aeris", "version": 1, "type": kind,
-        "id": req, "payload": payload or {}
+        "protocol": "aeris",
+        "version": 1,
+        "type": kind,
+        "id": request_id,
+        "payload": payload or {},
     }, separators=(",", ":")).encode("utf-8"), 1)
     response = _recv_text(sock)
     if response.get("type") == "error":
-        details = response.get("payload", {})
-        raise RuntimeError("{}: {}".format(details.get("code"), details.get("message", "")))
+        data = response.get("payload", {})
+        raise RuntimeError("{}: {}".format(data.get("code"), data.get("message", "")))
     return response
 
 
-def _connect(host, port, code):
+def _close_ws(sock):
+    if sock is None:
+        return
+    try:
+        _send_frame(sock, b"", 8)
+        sock.settimeout(1.0)
+        try:
+            _read_exact(sock, 2)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except Exception:
+        pass
+    try:
+        sock.close()
+    except Exception:
+        pass
+
+
+def _open_connection(host, port):
     sock = socket.create_connection((host, port), timeout=10)
-    sock.settimeout(30)
-    key = base64.b64encode(os.urandom(16)).decode()
+    sock.settimeout(120)
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
     request = (
         "GET /ws HTTP/1.1\r\n"
         "Host: {}:{}\r\n"
@@ -118,7 +119,7 @@ def _connect(host, port, code):
         "Sec-WebSocket-Version: 13\r\n\r\n"
     ).format(host, port, key)
     try:
-        sock.sendall(request.encode())
+        sock.sendall(request.encode("ascii"))
         response = b""
         while b"\r\n\r\n" not in response:
             part = sock.recv(1024)
@@ -131,12 +132,35 @@ def _connect(host, port, code):
             raise ConnectionError("AERIS отклонил WebSocket")
         if _send_msg(sock, "hello").get("type") != "hello_ack":
             raise ConnectionError("Неожиданный ответ AERIS")
-        paired = _send_msg(sock, "pair", {"code": code})
-        if paired.get("type") != "pair_result" or not paired.get("payload", {}).get("paired"):
-            raise ConnectionError("Неверный или истёкший код сопряжения")
         return sock
     except Exception:
-        sock.close()
+        _close_ws(sock)
+        raise
+
+
+def _connect(host, port, code, device_token=""):
+    if device_token:
+        sock = None
+        try:
+            sock = _open_connection(host, port)
+            paired = _send_msg(sock, "pair", {"token": device_token}, "pair-token")
+            if paired.get("type") == "pair_result" and paired.get("payload", {}).get("paired"):
+                return sock, paired.get("payload", {}).get("token", device_token)
+        except Exception:
+            pass
+        _close_ws(sock)
+
+    sock = _open_connection(host, port)
+    try:
+        paired = _send_msg(sock, "pair", {"code": code}, "pair-code")
+        if paired.get("type") != "pair_result" or not paired.get("payload", {}).get("paired"):
+            raise ConnectionError("Неверный или истёкший код сопряжения")
+        token = paired.get("payload", {}).get("token")
+        if not token:
+            raise ConnectionError("Компьютер не выдал ключ запоминания устройства")
+        return sock, token
+    except Exception:
+        _close_ws(sock)
         raise
 
 
@@ -144,80 +168,59 @@ def _media_path(message, account=None):
     from client_utils import get_file_loader
     owner = getattr(message, "messageOwner", None)
     loader = get_file_loader(account) if account is not None else get_file_loader()
-    for item in (message, owner):
-        if item is None:
+    for obj in (message, owner):
+        if obj is None:
             continue
         try:
-            file_obj = loader.getPathToMessage(item)
-            path = str(file_obj.getAbsolutePath())
+            file_object = loader.getPathToMessage(obj)
+            path = str(file_object.getAbsolutePath())
             if os.path.isfile(path):
                 return path
         except Exception:
             pass
-    raise FileNotFoundError(
-        "Файл не найден в кэше Telegram. Сначала полностью скачай аудио или видео в Telegram."
-    )
+    raise FileNotFoundError("Файл не найден в кэше Telegram. Сначала полностью скачай видео или аудио.")
 
 
-def _transfer(host, port, code, path):
+def _transfer(host, port, code, path, device_token=""):
     size = os.path.getsize(path)
     if size <= 0 or size > MAX_MEDIA_BYTES:
         raise ValueError("Файл пустой или больше лимита 512 МиБ")
     digest = hashlib.sha256()
-    with open(path, "rb") as source:
+    with open(path, "rb") as media:
         while True:
-            chunk = source.read(CHUNK_SIZE)
+            chunk = media.read(CHUNK_SIZE)
             if not chunk:
                 break
             digest.update(chunk)
 
-    sock = _connect(host, port, code)
+    sock, device_token = _connect(host, port, code, device_token)
     try:
         mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        ready = _send_msg(sock, "begin_media", {
+        response = _send_msg(sock, "begin_media", {
             "file_name": os.path.basename(path),
             "mime_type": mime_type,
             "size": size,
-            "sha256": digest.hexdigest()
+            "sha256": digest.hexdigest(),
         }, "begin")
-        if ready.get("type") != "media_ready":
+        if response.get("type") != "media_ready":
             raise RuntimeError("ПК не подготовил приём файла")
 
         sent = 0
-        with open(path, "rb") as source:
+        with open(path, "rb") as media:
             while True:
-                chunk = source.read(CHUNK_SIZE)
+                chunk = media.read(CHUNK_SIZE)
                 if not chunk:
                     break
                 _send_frame(sock, chunk, 2)
                 sent += len(chunk)
 
-        completed = _send_msg(sock, "finish_media", {}, "finish")
-        if completed.get("type") != "media_complete":
-            raise RuntimeError("ПК не подтвердил получение файла")
-        playback = completed.get("payload", {}).get("playback", "")
-        if playback == "playing_in_aeris":
-            return "Воспроизведение запущено на ПК: {} ({:.1f} МБ)".format(
-                os.path.basename(path), sent / 1048576
-            )
-        if playback == "opened_external_player":
-            return "Видео открыто в системном плеере: {}".format(os.path.basename(path))
-        if playback == "audio_playback_failed":
-            raise RuntimeError("Файл принят, но AERIS не смог воспроизвести аудио. Проверь формат и устройство вывода Windows.")
-        return "Файл передан на ПК: {} ({:.1f} МБ)".format(
-            os.path.basename(path), sent / 1048576
-        )
-    finally:
-        _close_ws(sock)
-
-
-def _send_control(host, port, code, command, payload=None):
-    sock = _connect(host, port, code)
-    try:
-        response = _send_msg(sock, command, payload or {}, "control-" + command)
-        if response.get("type") != "command_result" or not response.get("payload", {}).get("success"):
-            raise RuntimeError("ПК не подтвердил выполнение команды")
-        return True
+        response = _send_msg(sock, "finish_media", {}, "finish")
+        if response.get("type") != "media_complete":
+            raise RuntimeError("ПК не подтвердил получение")
+        playback = response.get("payload", {}).get("playback")
+        if playback != "playing":
+            raise RuntimeError("Файл принят, но плеер не запустил воспроизведение. Проверь папку mpv рядом с AERIS Desktop.")
+        return "Воспроизведение на ПК: {} ({:.1f} МБ)".format(os.path.basename(path), sent / 1048576), device_token
     finally:
         _close_ws(sock)
 
@@ -225,67 +228,41 @@ def _send_control(host, port, code, command, payload=None):
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
         self.logger.info("AERIS 0.3.0 loaded")
-        self.menu_ids = []
-        self.menu_ids.append(self.add_menu_item(MenuItemData(
+        self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
-            text="Передать через AERIS",
+            text="Воспроизвести через AERIS",
             on_click=self._on_message_menu,
             icon="msg2_devices",
-            subtext="Воспроизвести медиа на компьютере",
-            priority=100
-        )))
-        for command, title, icon in (
-            ("play", "AERIS: продолжить", "msg_play"),
-            ("pause", "AERIS: пауза", "msg_pause"),
-            ("stop", "AERIS: остановить", "msg_close"),
-        ):
-            self.menu_ids.append(self.add_menu_item(MenuItemData(
-                menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
-                text=title,
-                on_click=self._control_handler(command),
-                icon=icon,
-                priority=101
-            )))
+            subtext="Отправить медиа на компьютер",
+            priority=100,
+        ))
 
     def on_plugin_unload(self):
-        for item_id in getattr(self, "menu_ids", []):
-            try:
-                self.remove_menu_item(item_id)
-            except Exception:
-                pass
+        try:
+            if getattr(self, "media_menu_id", None):
+                self.remove_menu_item(self.media_menu_id)
+        except Exception:
+            pass
 
     def create_settings(self):
         return [
             Header(text="AERIS"),
-            Text(text="Передача Telegram-медиа на компьютер и удалённое управление воспроизведением.",
-                 subtext="Передача идёт напрямую по локальной сети. Telegram-серверы не участвуют в соединении AERIS.",
-                 icon="msg2_devices"),
+            Text(text="Передача и управление воспроизведением на компьютере", subtext="Телефон и ПК должны быть в одной локальной сети.", icon="msg2_devices"),
             Divider(text="Подключение к компьютеру"),
-            Input(key="host", text="IP-адрес компьютера", default=DEFAULT_HOST,
-                  subtext="Адрес из окна AERIS Desktop.", icon="msg_text", on_change=self._save_host),
-            Input(key="port", text="Порт", default=DEFAULT_PORT,
-                  subtext="Стандартный порт — 45872.", icon="msg_settings", on_change=self._save_port),
-            Input(key="pairing_code", text="Код сопряжения", default="",
-                  subtext="Введите 6-значный код из AERIS Desktop.", icon="msg_secret", on_change=self._save_code),
-            Text(text="Проверить подключение", subtext="Проверка локальной связи и сопряжения.",
-                 icon="msg_link", accent=True, on_click=self._test),
-            Divider(text="Управление воспроизведением"),
-            Text(text="▶ Продолжить", subtext="Возобновить воспроизведение на ПК.",
-                 icon="msg_play", on_click=self._control_from_settings("play")),
-            Text(text="Ⅱ Пауза", subtext="Приостановить воспроизведение.",
-                 icon="msg_pause", on_click=self._control_from_settings("pause")),
-            Text(text="■ Остановить", subtext="Остановить текущий трек.",
-                 icon="msg_close", on_click=self._control_from_settings("stop")),
-            Input(key="seek_seconds", text="Перемотка, секунды", default="0",
-                  subtext="Укажи позицию и нажми «Перемотать».", icon="msg_time", on_change=self._save_seek),
-            Text(text="Перемотать", icon="msg_forward", accent=True, on_click=self._seek),
-            Input(key="volume", text="Громкость (0–100)", default="80",
-                  subtext="Громкость встроенного аудиоплеера AERIS.", icon="msg_settings", on_change=self._save_volume),
-            Text(text="Применить громкость", icon="msg_settings", accent=True, on_click=self._set_volume),
+            Input(key="host", text="IP-адрес компьютера", default=DEFAULT_HOST, subtext="Адрес из окна AERIS Desktop.", icon="msg_text", on_change=self._save_host),
+            Input(key="port", text="Порт", default=DEFAULT_PORT, subtext="Стандартный порт — 45872.", icon="msg_settings", on_change=self._save_port),
+            Divider(text="Сопряжение устройств"),
+            Input(key="pairing_code", text="Код сопряжения", default="", subtext="Нужен только при первом подключении или сбросе сопряжения.", icon="msg_secret", on_change=self._save_code),
+            Text(text="Проверить подключение", subtext="Подключиться и запомнить это устройство.", icon="msg_link", accent=True, on_click=self._test),
+            Divider(text="Управление плеером"),
+            Text(text="Пауза / продолжить", subtext="Переключить состояние воспроизведения.", icon="msg2_devices", on_click=self._toggle_pause),
+            Text(text="Остановить воспроизведение", subtext="Остановить текущий файл.", icon="msg2_devices", on_click=self._stop),
+            Text(text="Назад на 10 секунд", subtext="Перемотать назад.", icon="msg2_devices", on_click=self._seek_back),
+            Text(text="Вперёд на 10 секунд", subtext="Перемотать вперёд.", icon="msg2_devices", on_click=self._seek_forward),
+            Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
+            Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS 0.3.0 · LAN control",
-                 subtext="Аудио играет внутри AERIS. Видео открывается в системном плеере. Медиа должно быть загружено в кэш Telegram.",
-                 icon="msg_info")
+            Text(text="AERIS Plugin 0.3.0", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -296,12 +273,6 @@ class AerisPlugin(BasePlugin):
 
     def _save_code(self, value):
         self.set_setting("pairing_code", str(value).strip().upper())
-
-    def _save_seek(self, value):
-        self.set_setting("seek_seconds", str(value).strip())
-
-    def _save_volume(self, value):
-        self.set_setting("volume", str(value).strip())
 
     def _values(self):
         host = str(self.get_setting("host", DEFAULT_HOST)).strip()
@@ -316,65 +287,66 @@ class AerisPlugin(BasePlugin):
                 raise ValueError("Проверь IP-адрес")
         if not 1 <= port <= 65535:
             raise ValueError("Неверный порт")
-        if len(code) != 6 or not code.isalnum():
-            raise ValueError("Введи 6-значный код сопряжения")
+        if not code and not self.get_setting("device_token", ""):
+            raise ValueError("Введи код сопряжения для первого подключения")
+        if code and (len(code) != 6 or not code.isalnum()):
+            raise ValueError("Код сопряжения должен содержать 6 символов")
         return host, port, code
 
-    def _run_control(self, command, payload=None):
-        try:
-            host, port, code = self._values()
-            _send_control(host, port, code, command, payload)
-            BulletinHelper.show_success("AERIS: команда выполнена")
-        except Exception as error:
-            self.logger.exception("AERIS control failed")
-            BulletinHelper.show_error(str(error))
-
-    def _control_handler(self, command):
-        def handler(_context=None):
-            threading.Thread(target=self._run_control, args=(command,), daemon=True).start()
-        return handler
-
-    def _control_from_settings(self, command):
-        return self._control_handler(command)
-
-    def _seek(self, _view=None):
-        try:
-            position = float(str(self.get_setting("seek_seconds", "0")).replace(",", "."))
-            if position < 0 or position > 86400:
-                raise ValueError("Позиция должна быть от 0 до 86400 секунд")
-            threading.Thread(target=self._run_control, args=("seek", {"position": position}), daemon=True).start()
-        except Exception as error:
-            BulletinHelper.show_error(str(error))
-
-    def _set_volume(self, _view=None):
-        try:
-            volume = float(str(self.get_setting("volume", "80")).replace(",", "."))
-            if volume < 0 or volume > 100:
-                raise ValueError("Громкость должна быть от 0 до 100")
-            threading.Thread(target=self._run_control, args=("set_volume", {"volume": volume / 100.0}), daemon=True).start()
-        except Exception as error:
-            BulletinHelper.show_error(str(error))
-
-    def _test(self, _view=None):
+    def _run_connection_action(self, command=None, payload=None, show_success=True):
         try:
             host, port, code = self._values()
         except Exception as error:
             BulletinHelper.show_error(str(error))
             return
+        token = str(self.get_setting("device_token", "")).strip()
         BulletinHelper.show_info("Подключаемся к AERIS…")
 
         def work():
+            sock = None
             try:
-                sock = _connect(host, port, code)
-                _close_ws(sock)
-                BulletinHelper.show_success("AERIS подключён: {}:{}".format(host, port))
+                sock, token = _connect(host, port, code, token)
+                self.set_setting("device_token", token)
+                if command:
+                    response = _send_msg(sock, command, payload or {}, "control")
+                    if response.get("type") != "command_result" or not response.get("payload", {}).get("success"):
+                        raise RuntimeError("ПК не подтвердил выполнение команды")
+                if show_success:
+                    BulletinHelper.show_success("AERIS: команда выполнена" if command else "AERIS подключён и запомнил устройство")
             except Exception as error:
-                self.logger.exception("AERIS test failed")
+                self.logger.exception("AERIS command failed")
                 BulletinHelper.show_error(str(error))
+            finally:
+                _close_ws(sock)
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=work, name="AERIS-control", daemon=True).start()
+
+    def _test(self, _view=None):
+        self._run_connection_action()
+
+    def _control(self, command, payload=None):
+        self._run_connection_action(command, payload)
+
+    def _toggle_pause(self, _view=None):
+        self._control("toggle_pause")
+
+    def _stop(self, _view=None):
+        self._control("stop")
+
+    def _seek_back(self, _view=None):
+        self._control("seek_relative", {"offset": -10})
+
+    def _seek_forward(self, _view=None):
+        self._control("seek_relative", {"offset": 10})
+
+    def _volume_down(self, _view=None):
+        self._control("volume_delta", {"delta": -5})
+
+    def _volume_up(self, _view=None):
+        self._control("volume_delta", {"delta": 5})
 
     def _on_message_menu(self, context):
+        self.logger.info("AERIS menu context keys: {}".format(list(context.keys())))
         message = context.get("message")
         if message is None:
             BulletinHelper.show_error("Не удалось получить сообщение Telegram")
@@ -385,11 +357,14 @@ class AerisPlugin(BasePlugin):
         except Exception as error:
             BulletinHelper.show_error(str(error))
             return
-        BulletinHelper.show_info("Передаём медиа на компьютер…")
+
+        token = str(self.get_setting("device_token", "")).strip()
+        BulletinHelper.show_info("Передаём медиа и запускаем воспроизведение на ПК…")
 
         def work():
             try:
-                result = _transfer(host, port, code, path)
+                result, token = _transfer(host, port, code, path, token)
+                self.set_setting("device_token", token)
                 self.logger.info(result)
                 BulletinHelper.show_success(result)
             except Exception as error:
