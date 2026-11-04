@@ -731,4 +731,26 @@ mod tests {
             assert!(!is_private_ip(ip(address)), "{address} should not be local");
         }
     }
+
+    #[test]
+    fn rejects_non_local_special_ranges() {
+        for address in ["224.0.0.1", "240.0.0.1", "100.64.0.1"] {
+            assert!(!is_private_ip(ip(address)), "{address} should not be accepted as a private LAN peer");
+        }
+    }
+
+    #[test]
+    fn sanitizes_uploaded_file_names() {
+        assert_eq!(super::sanitize_name("../../movie.mp4"), "movie.mp4");
+        assert_eq!(super::sanitize_name(r"C:\\Users\\user\\track.mp3"), "track.mp3");
+        assert_eq!(super::sanitize_name("..."), "media.bin");
+        assert_eq!(super::sanitize_name("bad<>name?.mp4"), "badname.mp4");
+    }
+
+    #[test]
+    fn decodes_browser_upload_query_parameters() {
+        assert_eq!(super::query_parameter("code=ABC123&name=My%20video%20%281%29.mp4", "name").as_deref(), Some("My video (1).mp4"));
+        assert_eq!(super::query_parameter("code=ABC123&name=a+b.mp3", "name").as_deref(), Some("a b.mp3"));
+        assert_eq!(super::query_parameter("code=ABC123", "name"), None);
+    }
 }
