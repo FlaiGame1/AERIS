@@ -24,13 +24,13 @@ AERIS is an open-source project for sending media from Android to a Windows PC o
 - Audio and video playback through the bundled mpv engine.
 - Phone controls: pause/resume, stop, seek backward/forward and volume up/down.
 - Remote playback status: current title, playback position, duration and pause state.
-- Received files are stored under the Windows temporary AERIS folder.
+- Received files are stored under the Windows temporary AERIS folder.\n- Standalone browser uploader on the PC (port 45873) for sending files from Android without Telegram.
 
 ### Development status
 
 AERIS is in early development. The Android plugin currently reads media from the Telegram client's local cache, so the media must be downloaded in Telegram before sending. The actual transfer from phone to PC is local and does not pass through Telegram servers. If Telegram is blocked but the file is already cached on the phone and both devices can communicate over the local network, transfer can still work.
 
-A standalone Android file picker / sender is not implemented yet. Video is played in a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
+A native standalone Android app is not implemented yet. As a Telegram-independent fallback, AERIS Desktop serves a small local upload page: open http://<PC-LAN-IP>:45873 in the phone browser, enter the short pairing code, choose a local audio/video file and send it directly to the PC. Video is played in a separate mpv window; an embedded player surface, transfer resume, transport encryption and a device-management screen remain future work.
 
 ### Security
 
@@ -82,7 +82,7 @@ AERIS — открытый проект для передачи видео и м
 
 AERIS всё ещё находится на ранней стадии. Android-плагин пока получает файлы из локального кэша Telegram, поэтому медиа сначала нужно скачать в Telegram. Но сама передача с телефона на компьютер идёт напрямую по локальной сети и не проходит через серверы Telegram. Если Telegram заблокирован, но файл уже находится в кэше телефона и устройства видят друг друга по локальной сети, передача всё равно может работать.
 
-Отдельный Android-отправитель с выбором файлов пока не реализован. Видео открывается в отдельном окне mpv, а не во встроенной поверхности AERIS. Встроенный видеоплеер, возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
+Отдельное Android-приложение пока не реализовано. Но теперь есть запасной вариант без Telegram: открой на телефоне в браузере адрес http://<IP-компьютера>:45873, введи короткий код сопряжения, выбери локальный аудио- или видеофайл и отправь его напрямую на ПК. Видео открывается в отдельном окне mpv, а не во встроенной поверхности AERIS. Встроенный видеоплеер, возобновление прерванной передачи, шифрование соединения и экран управления подключёнными устройствами остаются дальнейшими задачами.
 
 ### Безопасность
 
