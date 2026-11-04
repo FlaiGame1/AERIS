@@ -1,5 +1,5 @@
 import base64, hashlib, ipaddress, json, mimetypes, os, socket, struct, threading
-from base_plugin import BasePlugin, MenuItemData, MenuItemType
+from base_plugin import BasePlugin, MenuItemData, MenuItemType, MethodHook
 from ui.bulletin import BulletinHelper
 from ui.settings import Divider, Header, Input, Text
 
@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.4"
+__version__ = "0.3.5"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -257,7 +257,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.4 loaded")
+        self.logger.info("AERIS 0.3.5 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
@@ -274,6 +274,9 @@ class AerisPlugin(BasePlugin):
             subtext="Если профильный трек доступен клиенту",
             priority=100,
         ))
+        self._player_menu_action = None
+        self._injected_player_menus = set()
+        self._install_player_menu_hook()
 
     def on_plugin_unload(self):
         try:
@@ -305,7 +308,7 @@ class AerisPlugin(BasePlugin):
             Text(text="Уменьшить громкость", subtext="−5 пунктов.", icon="msg2_devices", on_click=self._volume_down),
             Text(text="Увеличить громкость", subtext="+5 пунктов.", icon="msg2_devices", on_click=self._volume_up),
             Divider(),
-            Text(text="AERIS Plugin 0.3.4", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
+            Text(text="AERIS Plugin 0.3.5", subtext="Медиа передаётся напрямую по локальной сети. Telegram-серверы не участвуют в передаче уже загруженного файла.", icon="msg_info"),
         ]
 
     def _save_host(self, value):
@@ -434,6 +437,74 @@ class AerisPlugin(BasePlugin):
 
         threading.Thread(target=work, name="AERIS-profile-transfer", daemon=True).start()
 
+
+    def _install_player_menu_hook(self):
+        try:
+            from hook_utils import find_class
+            item_options = find_class("org.telegram.ui.Components.ItemOptions")
+            if not item_options:
+                self.logger.info("AERIS: ItemOptions class unavailable; skipping native player menu")
+                return
+            show_method = item_options.getDeclaredMethod("show")
+            show_method.setAccessible(True)
+            self._player_menu_unhook = self.hook_method(
+                show_method, _AerisItemOptionsHook(self), priority=100
+            )
+            self.logger.info("AERIS: native player menu hook registered")
+        except Exception:
+            self.logger.exception("AERIS: native player menu hook unavailable")
+
+    def _inject_player_menu_item(self, options):
+        try:
+            from java.lang import Thread as JavaThread
+            frames = JavaThread.currentThread().getStackTrace()
+            in_player_menu = any(
+                str(frame.getClassName()).endswith(".AudioPlayerAlert")
+                and str(frame.getMethodName()) == "showMenuOptions"
+                for frame in frames
+            )
+            if not in_player_menu:
+                return
+            key = int(options.hashCode())
+            if key in self._injected_player_menus:
+                return
+            if self._player_menu_action is None:
+                from extera_utils.classes import Base, java_subclass, joverride
+                from java.lang import Runnable
+                plugin = self
+
+                @java_subclass(Runnable)
+                class AerisPlayerMenuAction(Base):
+                    def __init__(self, plugin_instance):
+                        self.plugin = plugin_instance
+
+                    @joverride()
+                    def run(self):
+                        self.plugin._send_current_player_media()
+
+                self._player_menu_action = AerisPlayerMenuAction.new_instance(init_args=[plugin])
+            options.add(0, "Воспроизвести через AERIS", self._player_menu_action.java)
+            self._injected_player_menus.add(key)
+            self.logger.info("AERIS: injected action into Telegram audio player menu")
+        except Exception:
+            self.logger.exception("AERIS: failed to add player menu action")
+
+    def _send_current_player_media(self):
+        try:
+            from hook_utils import find_class
+            media_controller = find_class("org.telegram.messenger.MediaController")
+            if not media_controller:
+                raise RuntimeError("MediaController Telegram не найден")
+            message = media_controller.getInstance().getPlayingMessageObject()
+            if message is None:
+                raise RuntimeError("Сейчас в Telegram ничего не воспроизводится")
+            account = getattr(message, "currentAccount", None)
+            path = _media_path(message, account)
+            self._send_path(path, "текущий трек")
+        except Exception as error:
+            self.logger.exception("AERIS current player transfer failed")
+            BulletinHelper.show_error("Не удалось передать текущий трек: {}".format(error))
+
     def _on_profile_menu(self, context):
         self.logger.info("AERIS profile menu context keys: {}".format(list(context.keys())))
         account = context.get("account")
@@ -472,3 +543,11 @@ class AerisPlugin(BasePlugin):
             return
 
         self._send_path(path, "медиа")
+
+
+class _AerisItemOptionsHook(MethodHook):
+    def __init__(self, plugin):
+        self.plugin = plugin
+
+    def before_hooked_method(self, param):
+        self.plugin._inject_player_menu_item(param.thisObject)
