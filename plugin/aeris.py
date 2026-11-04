@@ -7,7 +7,7 @@ __id__ = "aeris"
 __name__ = "AERIS"
 __description__ = "Cast Telegram media to AERIS Desktop over your local network."
 __author__ = "FlaiGame1"
-__version__ = "0.3.9"
+__version__ = "1.0.0"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -351,7 +351,7 @@ def _transfer(host, port, code, path, device_token=""):
 
 class AerisPlugin(BasePlugin):
     def on_plugin_load(self):
-        self.logger.info("AERIS 0.3.9 loaded")
+        self.logger.info("AERIS 1.0.0 loaded")
         self.media_menu_id = self.add_menu_item(MenuItemData(
             menu_type=MenuItemType.MESSAGE_CONTEXT_MENU,
             text="Воспроизвести через AERIS",
