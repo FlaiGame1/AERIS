@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod aeris_protocol;
+mod audio_player;
 
 use eframe::egui;
 use std::sync::{Arc, mpsc};
