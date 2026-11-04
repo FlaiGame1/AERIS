@@ -50,7 +50,7 @@ jobs:
       - name: Validate Android plugin
         run: |
           python -m py_compile ../plugin/aeris.py
-          python -c "from pathlib import Path; assert Path('../plugin/aeris.py').read_bytes() == Path('../plugin/aeris.plugin').read_bytes(), 'plugin package is out of sync'"
+          python -c "from pathlib import Path; a=Path('../plugin/aeris.py').read_text(encoding='utf-8').replace('\\r\\n','\\n'); b=Path('../plugin/aeris.plugin').read_text(encoding='utf-8').replace('\\r\\n','\\n'); assert a == b, 'plugin package is out of sync'"
 
       - name: Test AERIS Desktop
         run: cargo test --release --target x86_64-pc-windows-msvc
