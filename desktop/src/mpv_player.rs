@@ -90,21 +90,28 @@ impl MpvPlayer {
         // A successful pipe write only proves that bytes reached the pipe.
         // Read mpv's IPC acknowledgement so a rejected loadfile/control command
         // is reported to the phone instead of being silently treated as success.
-        let response = timeout(IPC_TIMEOUT, async {
+        timeout(IPC_TIMEOUT, async {
             let mut reader = BufReader::new(pipe);
-            let mut line = String::new();
-            reader.read_line(&mut line).await?;
-            Ok::<String, std::io::Error>(line)
-        }).await.context("mpv не ответил на команду за 3 секунды")?.context("Не удалось прочитать ответ mpv")?;
-        if response.trim().is_empty() {
-            bail!("mpv закрыл IPC-канал без ответа");
-        }
-        let response: Value = serde_json::from_str(&response)
-            .context("mpv вернул некорректный ответ IPC")?;
-        let error = response.get("error").and_then(Value::as_str).unwrap_or("unknown");
-        if error != "success" {
-            bail!("mpv отклонил команду: {error}");
-        }
+            loop {
+                let mut line = String::new();
+                let count = reader.read_line(&mut line).await?;
+                if count == 0 {
+                    bail!("mpv закрыл IPC-канал без ответа");
+                }
+                let response: Value = serde_json::from_str(&line)
+                    .context("mpv вернул некорректный ответ IPC")?;
+                // mpv may emit asynchronous event messages on the same pipe.
+                // Ignore them and wait for the acknowledgement for our request.
+                if response.get("request_id").and_then(Value::as_u64) != Some(1) {
+                    continue;
+                }
+                let error = response.get("error").and_then(Value::as_str).unwrap_or("unknown");
+                if error != "success" {
+                    bail!("mpv отклонил команду: {error}");
+                }
+                return Ok::<(), anyhow::Error>(());
+            }
+        }).await.context("mpv не ответил на команду за 3 секунды")??;
         Ok(())
     }
 
