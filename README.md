@@ -35,7 +35,7 @@ The Telegram plugin has a profile action-menu entry that now checks Telegram's `
 
 ### Security
 
-The current protocol uses unencrypted WebSocket (ws://) on the private LAN. Pairing tokens are stored locally by the plugin and Desktop. Use only a trusted home network and never expose TCP port 45872 to the public internet.
+The current protocol uses unencrypted WebSocket (ws://) on the private LAN. The receiver rejects peers whose source IP is not private, loopback or link-local, and pairing tokens are stored locally by the plugin and Desktop. This is defense in depth, not encryption: use only a trusted home network and never expose TCP port 45872 to the public internet.
 
 ### Repository structure
 
@@ -88,7 +88,7 @@ AERIS всё ещё находится на ранней стадии. Android-�
 
 ### Безопасность
 
-Сейчас протокол использует незашифрованный WebSocket (ws://) в частной локальной сети. Токены сопряжения хранятся локально в плагине и Desktop. Используй AERIS только в доверенной домашней сети и не открывай TCP-порт 45872 в интернет.
+Сейчас протокол использует незашифрованный WebSocket (ws://) в частной локальной сети. Приёмник отклоняет подключения с IP-адресов, не относящихся к частным, loopback или link-local диапазонам; токены сопряжения хранятся локально в плагине и Desktop. Это дополнительная защита, а не шифрование: используй AERIS только в доверенной домашней сети и не открывай TCP-порт 45872 в интернет.
 
 ### Структура репозитория
 
