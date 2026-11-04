@@ -1,28 +1,29 @@
-name: Build NEXUS CAST for Windows
+name: Build AERIS Desktop for Windows
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "src/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/build-windows.yml"
+      - "desktop/**"
       - "licenses/**"
+      - ".github/workflows/build-windows.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: nexus-cast-windows-build
+  group: aeris-desktop-windows-build
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
     steps:
-      - name: Checkout NEXUS CAST
+      - name: Checkout AERIS
         uses: actions/checkout@v4
 
       - name: Install Rust
@@ -30,43 +31,42 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Build NEXUS CAST
+      - name: Build AERIS Desktop
         run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Prepare portable package
         shell: pwsh
         run: |
-          $stage = Join-Path $PWD "dist\NEXUS-CAST"
+          $stage = Join-Path $env:GITHUB_WORKSPACE "dist\AERIS-Desktop"
           New-Item -ItemType Directory -Force "$stage\mpv", "$stage\licenses" | Out-Null
 
-          Copy-Item "target\x86_64-pc-windows-msvc\release\nexus-cast.exe" $stage
-          Copy-Item "licenses\OPENCHROMECAST-MIT.txt" "$stage\licenses\OPENCHROMECAST-MIT.txt"
+          Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
+          Copy-Item "..\licenses\OPENCHROMECAST-MIT.txt" "$stage\licenses\OPENCHROMECAST-MIT.txt"
 
-          # Portable MPV includes the runtime DLLs required for playback.
           winget install --id mpv-player.mpv-CI.MSVC --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
           $mpvExe = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter mpv.exe -ErrorAction Stop | Select-Object -First 1
           if (-not $mpvExe) { throw "mpv.exe was not found after installation" }
           Get-ChildItem $mpvExe.DirectoryName -File | Where-Object { $_.Name -ne "mpv.pdb" } | Copy-Item -Destination "$stage\mpv"
 
           @"
-          NEXUS CAST portable build
+          AERIS Desktop development package
 
-          Run nexus-cast.exe. Keep the mpv folder beside it.
-          The Cast V2 receiver is embedded in nexus-cast.exe.
+          Run aeris-desktop.exe. Keep the mpv folder beside it.
+          This early prototype still uses the legacy experimental Cast V2 backend.
+          It is not yet the final AERIS Protocol implementation.
 
           Third-party component:
-          OpenChromecast by Yukari Kaname — MIT License.
+          OpenChromecast-derived code — MIT License.
           License text: licenses/OPENCHROMECAST-MIT.txt
-          Source: https://github.com/yukarikaname/openchromecast
 
           MPV is distributed as a separate component with its own license files.
           "@ | Set-Content -Encoding UTF8 "$stage\THIRD-PARTY-NOTICES.txt"
 
-          Compress-Archive -Path "$stage\*" -DestinationPath "dist\NEXUS-CAST-windows-x64.zip" -Force
+          Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64.zip" -Force
 
       - name: Upload portable Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: NEXUS-CAST-windows-x64
-          path: dist/NEXUS-CAST-windows-x64.zip
+          name: AERIS-Desktop-windows-x64
+          path: dist/AERIS-Desktop-windows-x64.zip
           if-no-files-found: error
