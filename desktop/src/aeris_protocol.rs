@@ -65,7 +65,7 @@ struct IncomingMedia {
     track_artist: String,
 }
 
-pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> Result<()> {
+pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>, player: Arc<Mutex<AerisPlayer>>) -> Result<()> {
     let ip = local_ip_address::local_ip().context("Не удалось определить IP-адрес локальной сети")?;
     if !is_private_ip(ip) {
         bail!("Определён непубличный LAN-адрес: {ip}. Сервер не будет запускаться.");
@@ -80,7 +80,7 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     let pairing_code = Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
     let expires_at = Instant::now() + PAIRING_LIFETIME;
     let paired_tokens = Arc::new(Mutex::new(load_paired_tokens()));
-    let player = Arc::new(Mutex::new(AerisPlayer::new()));
+
 
     let mut playback_tick = tokio::time::interval(Duration::from_millis(500));
 
