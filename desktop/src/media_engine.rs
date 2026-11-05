@@ -133,12 +133,22 @@ impl AerisPlayer {
     }
 
     pub fn poll_events(&mut self) -> Vec<String> {
-        let Some(player) = self.player.as_ref() else { return Vec::new(); };
-        player.events().try_iter().filter_map(|event| match event {
-            PlayerEvent::Warning(message) => Some(message),
-            PlayerEvent::Error(error) => { self.last_error = Some(error.to_string()); Some(error.to_string()) },
-            PlayerEvent::Ended => Some("Воспроизведение завершено".to_owned()),
-            _ => None,
-        }).collect()
+        let events: Vec<PlayerEvent> = self.player.as_ref()
+            .map(|player| player.events().try_iter().collect())
+            .unwrap_or_default();
+        let mut messages = Vec::new();
+        for event in events {
+            match event {
+                PlayerEvent::Warning(message) => messages.push(message),
+                PlayerEvent::Error(error) => {
+                    let message = error.to_string();
+                    self.last_error = Some(message.clone());
+                    messages.push(message);
+                }
+                PlayerEvent::Ended => messages.push("Воспроизведение завершено".to_owned()),
+                _ => {}
+            }
+        }
+        messages
     }
 }
