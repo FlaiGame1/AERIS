@@ -156,7 +156,9 @@ impl AerisDesktop {
                         if let Some(name) = message.strip_prefix("Воспроизведение: ") {
                             self.cover_path.clear();
                             self.cover_loaded_path.clear();
-                            self.cover_texture = None;\n                            self.video_texture = None;\n                            self.video_pts = None;
+                            self.cover_texture = None;
+                            self.video_texture = None;
+                            self.video_pts = None;
                             self.background_texture = None;
                             let mut parts = name.splitn(2, " · ");
                             self.track_title = parts.next().unwrap_or(name).to_owned();
@@ -362,7 +364,8 @@ impl eframe::App for AerisDesktop {
                 ui.label(egui::RichText::new(format!("AERIS {}  •  Material 3 preview", env!("CARGO_PKG_VERSION"))).size(10.0).color(muted));
             });
         });
-        let video_active = self.video_texture.is_some();\n        ctx.request_repaint_after(if video_active { std::time::Duration::from_millis(16) } else { std::time::Duration::from_millis(250) });
+        let video_active = self.video_texture.is_some();
+        ctx.request_repaint_after(if video_active { std::time::Duration::from_millis(16) } else { std::time::Duration::from_millis(250) });
     }
 }
 
