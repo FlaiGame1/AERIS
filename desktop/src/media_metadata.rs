@@ -41,13 +41,13 @@ impl MediaMetadata {
 
         let title = tag.and_then(|tag| tag.title())
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| fallback.clone())
-;
+            .map(|value| value.into_owned())
+            .unwrap_or_else(|| fallback.clone());
         let artist = tag.and_then(|tag| tag.artist())
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "Неизвестный исполнитель".to_owned())
-;
-        let album = tag.and_then(|tag| tag.album()).unwrap_or_default();
+            .map(|value| value.into_owned())
+            .unwrap_or_else(|| "Неизвестный исполнитель".to_owned());
+        let album = tag.and_then(|tag| tag.album()).map(|value| value.into_owned()).unwrap_or_default();
 
         let cover_path = tag.and_then(|tag| {
             let picture = tag.pictures().iter()
