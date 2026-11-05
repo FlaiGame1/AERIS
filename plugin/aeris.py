@@ -455,7 +455,7 @@ def _transfer(host, port, code, path, device_token="", metadata=None):
             raise RuntimeError("ПК не подтвердил получение")
         playback = response.get("payload", {}).get("playback")
         if playback != "playing":
-            raise RuntimeError("Файл принят, но плеер не запустил воспроизведение. Проверь папку mpv рядом с AERIS Desktop.")
+            raise RuntimeError("Файл принят, но плеер не запустил воспроизведение. Проверь состояние AERIS Desktop и журнал приложения.")
         return "Воспроизведение на ПК: {} ({:.1f} МБ)".format(os.path.basename(path), sent / 1048576), device_token
     finally:
         _close_ws(sock)
