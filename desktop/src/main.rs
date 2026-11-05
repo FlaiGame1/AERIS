@@ -112,17 +112,23 @@ impl AerisDesktop {
                 match rx.try_recv() {
                     Ok(message) => {
                         if let Some(event) = message.strip_prefix("MEDIA_EVENT:") {
+                            if event.contains("завершено") || event.contains("остановлено") {
+                                self.clear_track_state();
+                            }
                             self.status = event.to_owned();
                             continue;
                         }
                         if let Some(path) = message.strip_prefix("COVER_PATH:") {
+                            if !self.cover_path.is_empty() && self.cover_path != path {
+                                let _ = std::fs::remove_file(&self.cover_path);
+                            }
                             self.cover_path = path.to_owned();
                             continue;
                         }
                         if let Some(payload) = message.strip_prefix("MEDIA_METADATA:") {
                             if let Ok(metadata) = serde_json::from_str::<media_metadata::MediaMetadata>(payload) {
-                                self.track_title = metadata.title;
-                                self.track_artist = metadata.artist;
+                                if !metadata.title.trim().is_empty() { self.track_title = metadata.title; }
+                                if !metadata.artist.trim().is_empty() { self.track_artist = metadata.artist; }
                                 if let Some(duration) = metadata.duration_seconds {
                                     self.playback_duration = duration;
                                 }
@@ -158,12 +164,7 @@ impl AerisDesktop {
                             self.lan_address = line.trim_start_matches("Адрес:").trim().to_owned();
                         }
                         if let Some(name) = message.strip_prefix("Воспроизведение: ") {
-                            self.cover_path.clear();
-                            self.cover_loaded_path.clear();
-                            self.cover_texture = None;
-                            self.video_texture = None;
-                            self.video_pts = None;
-                            self.background_texture = None;
+                            self.clear_track_state();
                             let mut parts = name.splitn(2, " · ");
                             self.track_title = parts.next().unwrap_or(name).to_owned();
                             self.track_artist = parts.next().unwrap_or("Неизвестный исполнитель").to_owned();
@@ -184,6 +185,22 @@ impl AerisDesktop {
             self.shutdown = None;
             self.ready_rx = None;
         }
+    }
+
+    fn clear_track_state(&mut self) {
+        if !self.cover_path.is_empty() {
+            let _ = std::fs::remove_file(&self.cover_path);
+        }
+        self.cover_path.clear();
+        self.cover_loaded_path.clear();
+        self.cover_texture = None;
+        self.video_texture = None;
+        self.video_pts = None;
+        self.background_texture = None;
+        self.track_title = "Ожидание воспроизведения".to_owned();
+        self.track_artist = "AERIS • Desktop player".to_owned();
+        self.playback_position = 0.0;
+        self.playback_duration = 0.0;
     }
 
     fn player_tab(&mut self, ui: &mut egui::Ui) {
