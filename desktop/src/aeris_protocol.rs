@@ -351,8 +351,8 @@ async fn handle_client(
                         transfer.cleanup.keep = true;
                         let playback = match player.lock().await.play_file(&transfer.path).await {
                             Ok(()) => {
-                                let title = if transfer.track_title.is_empty() { transfer.file_name.clone() } else { transfer.track_title.clone() };
-                                let artist = if transfer.track_artist.is_empty() { transfer.mime_type.clone() } else { transfer.track_artist.clone() };
+                                let title = if transfer.track_title.trim().is_empty() { "Получено медиа".to_owned() } else { transfer.track_title.trim().to_owned() };
+                                let artist = if transfer.track_artist.trim().is_empty() { "Неизвестный исполнитель".to_owned() } else { transfer.track_artist.trim().to_owned() };
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
                                 if let Some(cover_path) = extract_embedded_cover(&transfer.path) {
                                     let _ = status.send(format!("COVER:{}", cover_path.display()));
