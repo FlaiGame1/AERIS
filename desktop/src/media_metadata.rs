@@ -1,5 +1,5 @@
 use anyhow::Result;
-use lofty::{file::TaggedFileExt, picture::PictureType, tag::TagExt};
+use lofty::{file::{AudioFile, TaggedFileExt}, picture::PictureType, tag::{ItemKey, TagExt}};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}};
 use uuid::Uuid;
@@ -39,15 +39,15 @@ impl MediaMetadata {
         };
         let tag = tagged.primary_tag().or_else(|| tagged.first_tag());
 
-        let title = tag.and_then(|tag| tag.title())
+        let title = tag.and_then(|tag| tag.get_string(&ItemKey::TrackTitle))
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(&fallback)
             .to_owned();
-        let artist = tag.and_then(|tag| tag.artist())
+        let artist = tag.and_then(|tag| tag.get_string(&ItemKey::TrackArtist))
             .filter(|value| !value.trim().is_empty())
             .unwrap_or("Неизвестный исполнитель")
             .to_owned();
-        let album = tag.and_then(|tag| tag.album()).unwrap_or("").to_owned();
+        let album = tag.and_then(|tag| tag.get_string(&ItemKey::AlbumTitle)).unwrap_or("").to_owned();
 
         let cover_path = tag.and_then(|tag| {
             let picture = tag.pictures().iter()
