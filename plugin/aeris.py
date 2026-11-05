@@ -319,7 +319,13 @@ def _media_path(message_or_document, account=None):
     )
 def _media_metadata(message, account=None):
     """Read Telegram's own audio metadata, not the cached file name."""
-    result = {"track_title": "", "track_artist": "", "cover_base64": ""}
+    result = {
+        "track_title": "",
+        "track_artist": "",
+        "track_album": "",
+        "track_duration_seconds": None,
+        "cover_base64": "",
+    }
 
     def safe_get(obj, name):
         try:
@@ -358,11 +364,22 @@ def _media_metadata(message, account=None):
         for attribute in attributes:
             title = str(safe_get(attribute, "title") or "").strip()
             artist = str(safe_get(attribute, "performer") or "").strip()
+            album = str(safe_get(attribute, "album") or "").strip()
+            duration = safe_get(attribute, "duration")
             if title and not result["track_title"]:
                 result["track_title"] = title
             if artist and not result["track_artist"]:
                 result["track_artist"] = artist
-            if result["track_title"] and result["track_artist"]:
+            if album and not result["track_album"]:
+                result["track_album"] = album
+            if duration is not None and result["track_duration_seconds"] is None:
+                try:
+                    seconds = float(duration)
+                    if seconds > 0:
+                        result["track_duration_seconds"] = seconds
+                except (TypeError, ValueError):
+                    pass
+            if result["track_title"] and result["track_artist"] and result["track_duration_seconds"] is not None:
                 break
 
     # Try Telegram's cached thumbnail only; never trigger a new download.
@@ -417,6 +434,8 @@ def _transfer(host, port, code, path, device_token="", metadata=None):
             "sha256": digest.hexdigest(),
             "track_title": (metadata or {}).get("track_title", ""),
             "track_artist": (metadata or {}).get("track_artist", ""),
+            "track_album": (metadata or {}).get("track_album", ""),
+            "track_duration_seconds": (metadata or {}).get("track_duration_seconds"),
             "cover_base64": (metadata or {}).get("cover_base64", ""),
         }, "begin")
         if response.get("type") != "media_ready":
