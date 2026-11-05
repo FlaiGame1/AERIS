@@ -1,10 +1,10 @@
 use anyhow::Result;
 use lofty::{file::TaggedFileExt, picture::PictureType, tag::TagExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{fs, path::{Path, PathBuf}};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaMetadata {
     pub title: String,
     pub artist: String,
