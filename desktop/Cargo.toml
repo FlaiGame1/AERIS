@@ -20,6 +20,7 @@ tokio-tungstenite = "0.26"
 url = "2"
 sha2 = "0.10"
 lofty = "0.21"
+alhazen-core = { version = "0.7.1", default-features = false, features = ["native", "media-foundation", "audio-output", "native-aac", "native-mp3"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [profile.release]
