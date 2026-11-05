@@ -327,16 +327,6 @@ def _media_metadata(message, account=None):
         except Exception:
             return None
 
-    def safe_call(obj, name, *args):
-        method = safe_get(obj, name)
-        if not callable(method):
-            return ""
-        try:
-            value = method(*args)
-            return str(value).strip() if value is not None else ""
-        except Exception:
-            return ""
-
     owner = safe_get(message, "messageOwner")
     candidates = []
     for candidate in (message, owner):
@@ -354,15 +344,9 @@ def _media_metadata(message, account=None):
         if document is not None and document not in candidates:
             candidates.append(document)
 
-    # MessageObject exposes these helpers in Telegram-based clients. They
-    # resolve the audio attributes without depending on a cache filename.
-    for candidate in candidates:
-        if not result["track_title"]:
-            result["track_title"] = safe_call(candidate, "getMusicTitle", False)
-        if not result["track_artist"]:
-            result["track_artist"] = safe_call(candidate, "getMusicAuthor", False)
-
-    # Read TL_documentAttributeAudio fields directly as a compatibility path.
+    # Read the actual TL_documentAttributeAudio fields. Do not call
+    # MessageObject.getMusicTitle(): Telegram may return the cache filename
+    # when the embedded title is empty, which is exactly what the player must avoid.
     for candidate in candidates:
         attributes = safe_get(candidate, "attributes")
         if attributes is None:
