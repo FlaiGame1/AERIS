@@ -47,6 +47,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install NASM for native decoder builds
+        shell: pwsh
+        run: |
+          if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {
+            choco install nasm --no-progress -y
+          }
+          nasm -v
+
+      - name: Test AERIS Desktop
+        run: cargo test --release --target x86_64-pc-windows-msvc
+
       - name: Validate Android plugin
         shell: pwsh
         run: |
@@ -56,17 +67,6 @@ jobs:
           if ($sourceBlob -ne $packageBlob) {
             throw "plugin/aeris.py and plugin/aeris.plugin differ in the Git commit."
           }
-
-      - name: Test AERIS Desktop
-        run: cargo test --release --target x86_64-pc-windows-msvc
-
-      - name: Install NASM for native decoder builds
-        shell: pwsh
-        run: |
-          if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {
-            choco install nasm --no-progress -y
-          }
-          nasm -v
 
       - name: Build AERIS Desktop
         run: cargo build --release --target x86_64-pc-windows-msvc
