@@ -238,7 +238,7 @@ async fn handle_client(
                             send_error(&mut write, env.id, "pairing_required", "Сначала выполните сопряжение").await?;
                             continue;
                         }
-                        match player.lock().await.playback_status().await {
+                        match player.lock().await.playback_status() {
                             Ok(playback) => send_json(&mut write, json!({
                                 "protocol":"aeris","version":1,"type":"playback_status","id":env.id,
                                 "payload":playback
@@ -523,7 +523,7 @@ async fn handle_browser_upload(
     peer: SocketAddr,
     pairing_code: String,
     expires_at: Instant,
-    player: Arc<Mutex<MpvPlayer>>,
+    player: Arc<Mutex<AerisPlayer>>,
     status: mpsc::Sender<String>,
 ) -> Result<()> {
     if !is_private_ip(peer.ip()) {
