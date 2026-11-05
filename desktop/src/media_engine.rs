@@ -34,8 +34,11 @@ impl AerisPlayer {
         // Open/probe first. Keep the previous item alive if the new file cannot be opened.
         let next = Player::open(source, config).context("AERIS не смог открыть медиапоток")?;
         next.play();
+        let previous_path = self.current_path.replace(path.to_path_buf());
         self.player = Some(next);
-        self.current_path = Some(path.to_path_buf());
+        if let Some(previous_path) = previous_path {
+            if previous_path != path { let _ = std::fs::remove_file(previous_path); }
+        }
         self.last_error = None;
         tracing::info!("AERIS native playback started: {}", path.display());
         Ok(())
@@ -68,7 +71,9 @@ impl AerisPlayer {
         if self.player.take().is_none() {
             bail!("Сейчас ничего не воспроизводится");
         }
-        self.current_path = None;
+        if let Some(path) = self.current_path.take() {
+            let _ = std::fs::remove_file(path);
+        }
         Ok(())
     }
 
@@ -137,6 +142,7 @@ impl AerisPlayer {
             .map(|player| player.events().try_iter().collect())
             .unwrap_or_default();
         let mut messages = Vec::new();
+        let mut ended = false;
         for event in events {
             match event {
                 PlayerEvent::Warning(message) => messages.push(message),
@@ -145,10 +151,29 @@ impl AerisPlayer {
                     self.last_error = Some(message.clone());
                     messages.push(message);
                 }
-                PlayerEvent::Ended => messages.push("Воспроизведение завершено".to_owned()),
+                PlayerEvent::Ended => {
+                    ended = true;
+                    messages.push("Воспроизведение завершено".to_owned());
+                },
                 _ => {}
             }
         }
+        if ended {
+            // Drop decoder/audio/video buffers before deleting the source file.
+            self.player.take();
+            if let Some(path) = self.current_path.take() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
         messages
+    }
+}
+
+impl Drop for AerisPlayer {
+    fn drop(&mut self) {
+        self.player.take();
+        if let Some(path) = self.current_path.take() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
