@@ -17,7 +17,7 @@ use tokio::{io::AsyncReadExt, net::{TcpListener, TcpStream}, sync::{Mutex, Notif
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use uuid::Uuid;
 
-use crate::mpv_player::MpvPlayer;
+use crate::{media_metadata::MediaMetadata, mpv_player::MpvPlayer};
 
 const PROTOCOL_VERSION: u8 = 1;
 const PORT: u16 = 45872;
@@ -129,21 +129,6 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     Ok(())
 }
 
-fn extract_embedded_cover(media_path: &std::path::Path) -> Option<PathBuf> {
-    use lofty::{file::TaggedFileExt, picture::PictureType, tag::TagExt};
-    let tagged = lofty::read_from_path(media_path).ok()?;
-    let tag = tagged.primary_tag().or_else(|| tagged.first_tag())?;
-    let picture = tag.pictures().iter().find(|picture| {
-        picture.pic_type() == PictureType::CoverFront || picture.pic_type() == PictureType::CoverBack
-    }).or_else(|| tag.pictures().first())?;
-    let data = picture.data();
-    if data.is_empty() || data.len() > 12 * 1024 * 1024 { return None; }
-    let directory = std::env::temp_dir().join("AERIS").join("Received");
-    fs::create_dir_all(&directory).ok()?;
-    let path = directory.join(format!("cover-{}.img", Uuid::new_v4()));
-    fs::write(&path, data).ok()?;
-    Some(path)
-}
 
 async fn handle_client(
     stream: TcpStream,
@@ -346,21 +331,27 @@ async fn handle_client(
                             continue;
                         }
 
-                        // Once the complete file passes size and SHA-256 checks, keep it
-                        // even if the external player cannot open it.
+                        // AERIS reads tags and artwork itself before handing the media
+                        // to the playback backend. Phone-provided labels take precedence.
                         transfer.cleanup.keep = true;
+                        let metadata = MediaMetadata::read(&transfer.path);
+                        let title = if !transfer.track_title.trim().is_empty() {
+                            transfer.track_title.trim().to_owned()
+                        } else { metadata.title.clone() };
+                        let artist = if !transfer.track_artist.trim().is_empty() {
+                            transfer.track_artist.trim().to_owned()
+                        } else { metadata.artist.clone() };
+                        if let Some(cover_path) = metadata.cover_path.as_ref() {
+                            let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
+                        }
+                        let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
                         let playback = match player.lock().await.play_file(&transfer.path).await {
                             Ok(()) => {
-                                let title = if transfer.track_title.trim().is_empty() { "Получено медиа".to_owned() } else { transfer.track_title.trim().to_owned() };
-                                let artist = if transfer.track_artist.trim().is_empty() { "Неизвестный исполнитель".to_owned() } else { transfer.track_artist.trim().to_owned() };
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
-                                if let Some(cover_path) = extract_embedded_cover(&transfer.path) {
-                                    let _ = status.send(format!("COVER:{}", cover_path.display()));
-                                }
                                 "playing"
                             }
                             Err(error) => {
-                                let _ = status.send(format!("Файл принят, но mpv не запустился: {error:#}"));
+                                let _ = status.send(format!("Файл принят, но медиадвижок не запустил его: {error:#}"));
                                 "playback_failed"
                             }
                         };
@@ -657,22 +648,29 @@ async fn handle_browser_upload(
     // The upload is complete; preserve it even if playback fails.
     cleanup.keep = true;
 
+    let metadata = MediaMetadata::read(&path);
+    if let Some(cover_path) = metadata.cover_path.as_ref() {
+        let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
+    }
+    let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
     match player.lock().await.play_file(&path).await {
         Ok(()) => {
-            let _ = status.send(format!("Получено из браузера: {} · {:.1} МБ", file_name, size as f64 / 1048576.0));
+            let _ = status.send(format!("Воспроизведение: {} · {}", metadata.title, metadata.artist));
             send_http_json(&mut stream, "200 OK", json!({
                 "success":true,
                 "file_name":file_name.clone(),
+                "title":metadata.title,
+                "artist":metadata.artist,
                 "size":size,
                 "sha256":digest.clone()
             })).await?;
             tracing::info!("AERIS browser upload from {peer}: {file_name} ({size} bytes, sha256 {digest})");
         }
         Err(error) => {
-            let _ = status.send(format!("Файл получен, но mpv не запустил его: {error:#}"));
+            let _ = status.send(format!("Файл получен, но медиадвижок не смог его открыть: {error:#}"));
             send_http_json(&mut stream, "500 Internal Server Error", json!({
                 "success":false,
-                "error":format!("Файл принят, но mpv не смог его открыть: {error:#}")
+                "error":format!("Файл принят, но медиадвижок не смог его открыть: {error:#}")
             })).await?;
         }
     }
