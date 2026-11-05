@@ -63,6 +63,8 @@ struct IncomingMedia {
     mime_type: String,
     track_title: String,
     track_artist: String,
+    track_album: String,
+    track_duration_seconds: Option<f64>,
 }
 
 pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>, player: Arc<Mutex<AerisPlayer>>) -> Result<()> {
@@ -298,6 +300,8 @@ async fn handle_client(
                             mime_type: mime.to_string(),
                             track_title: env.payload.get("track_title").and_then(Value::as_str).unwrap_or("").to_string(),
                             track_artist: env.payload.get("track_artist").and_then(Value::as_str).unwrap_or("").to_string(),
+                            track_album: env.payload.get("track_album").and_then(Value::as_str).unwrap_or("").to_string(),
+                            track_duration_seconds: env.payload.get("track_duration_seconds").and_then(Value::as_f64).filter(|value| value.is_finite() && *value > 0.0),
                         });
                         let _ = status.send(format!("Получение файла: {name} ({:.1} МБ)", size as f64 / 1048576.0));
                         send_json(&mut write, json!({
@@ -338,7 +342,13 @@ async fn handle_client(
                         // AERIS reads tags and artwork itself before handing the media
                         // to the playback backend. Phone-provided labels take precedence.
                         transfer.cleanup.keep = true;
-                        let metadata = MediaMetadata::read(&transfer.path);
+                        let mut metadata = MediaMetadata::read(&transfer.path);
+                        if !transfer.track_album.trim().is_empty() {
+                            metadata.album = transfer.track_album.trim().to_owned();
+                        }
+                        if transfer.track_duration_seconds.is_some() {
+                            metadata.duration_seconds = transfer.track_duration_seconds;
+                        }
                         let title = if !transfer.track_title.trim().is_empty() {
                             transfer.track_title.trim().to_owned()
                         } else { metadata.title.clone() };
