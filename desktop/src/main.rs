@@ -111,6 +111,10 @@ impl AerisDesktop {
             loop {
                 match rx.try_recv() {
                     Ok(message) => {
+                        if let Some(event) = message.strip_prefix("MEDIA_EVENT:") {
+                            self.status = event.to_owned();
+                            continue;
+                        }
                         if let Some(path) = message.strip_prefix("COVER_PATH:") {
                             self.cover_path = path.to_owned();
                             continue;
