@@ -17,7 +17,7 @@ use tokio::{io::AsyncReadExt, net::{TcpListener, TcpStream}, sync::{Mutex, Notif
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use uuid::Uuid;
 
-use crate::{media_metadata::MediaMetadata, mpv_player::MpvPlayer};
+use crate::{media_engine::AerisPlayer, media_metadata::MediaMetadata};
 
 const PROTOCOL_VERSION: u8 = 1;
 const PORT: u16 = 45872;
@@ -80,7 +80,7 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     let pairing_code = Uuid::new_v4().simple().to_string()[..6].to_ascii_uppercase();
     let expires_at = Instant::now() + PAIRING_LIFETIME;
     let paired_tokens = Arc::new(Mutex::new(load_paired_tokens()));
-    let player = Arc::new(Mutex::new(MpvPlayer::new()));
+    let player = Arc::new(Mutex::new(AerisPlayer::new()));
 
     let mut playback_tick = tokio::time::interval(Duration::from_millis(500));
 
@@ -91,7 +91,7 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>) -> 
     loop {
         tokio::select! {
             _ = playback_tick.tick() => {
-                if let Ok(playback) = player.lock().await.playback_status().await {
+                if let Ok(playback) = player.lock().await.playback_status() {
                     if playback.get("idle").and_then(Value::as_bool) != Some(true) {
                         let _ = status.send(format!("PLAYBACK:{}", playback));
                     }
@@ -136,7 +136,7 @@ async fn handle_client(
     pairing_code: String,
     expires_at: Instant,
     paired_tokens: Arc<Mutex<HashSet<String>>>,
-    player: Arc<Mutex<MpvPlayer>>,
+    player: Arc<Mutex<AerisPlayer>>,
     status: mpsc::Sender<String>,
 ) -> Result<()> {
     // AERIS is a LAN-only receiver. Do not even complete a WebSocket handshake
@@ -345,7 +345,7 @@ async fn handle_client(
                             let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
                         }
                         let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
-                        let playback = match player.lock().await.play_file(&transfer.path).await {
+                        let playback = match player.lock().await.play_file(&transfer.path) {
                             Ok(()) => {
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
                                 "playing"
@@ -373,14 +373,14 @@ async fn handle_client(
                             continue;
                         }
                         let result = match env.kind.as_str() {
-                            "play" => player.lock().await.play().await,
-                            "pause" => player.lock().await.pause().await,
-                            "toggle_pause" => player.lock().await.toggle_pause().await,
-                            "stop" => player.lock().await.stop().await,
+                            "play" => player.lock().await.play(),
+                            "pause" => player.lock().await.pause(),
+                            "toggle_pause" => player.lock().await.toggle_pause(),
+                            "stop" => player.lock().await.stop(),
                             "seek" => {
                                 let position = env.payload.get("position").and_then(Value::as_f64);
                                 match position.filter(|v| v.is_finite() && (0.0..=86400.0).contains(v)) {
-                                    Some(value) => player.lock().await.seek(value).await,
+                                    Some(value) => player.lock().await.seek(value),
                                     None => {
                                         send_error(&mut write, env.id, "invalid_seek", "Позиция должна быть от 0 до 86400 секунд").await?;
                                         continue;
@@ -390,7 +390,7 @@ async fn handle_client(
                             "seek_relative" => {
                                 let offset = env.payload.get("offset").and_then(Value::as_f64);
                                 match offset.filter(|v| v.is_finite() && (-3600.0..=3600.0).contains(v)) {
-                                    Some(value) => player.lock().await.seek_relative(value).await,
+                                    Some(value) => player.lock().await.seek_relative(value),
                                     None => {
                                         send_error(&mut write, env.id, "invalid_seek", "Смещение должно быть от -3600 до 3600 секунд").await?;
                                         continue;
@@ -400,7 +400,7 @@ async fn handle_client(
                             "set_volume" => {
                                 let volume = env.payload.get("volume").and_then(Value::as_f64);
                                 match volume.filter(|v| v.is_finite() && (0.0..=1.0).contains(v)) {
-                                    Some(value) => player.lock().await.set_volume(value * 100.0).await,
+                                    Some(value) => player.lock().await.set_volume(value),
                                     None => {
                                         send_error(&mut write, env.id, "invalid_volume", "Громкость должна быть от 0.0 до 1.0").await?;
                                         continue;
@@ -410,7 +410,7 @@ async fn handle_client(
                             "volume_delta" => {
                                 let delta = env.payload.get("delta").and_then(Value::as_f64);
                                 match delta.filter(|v| v.is_finite() && (-100.0..=100.0).contains(v)) {
-                                    Some(value) => player.lock().await.change_volume(value).await,
+                                    Some(value) => player.lock().await.change_volume(value / 100.0),
                                     None => {
                                         send_error(&mut write, env.id, "invalid_volume", "Изменение громкости должно быть от -100 до 100").await?;
                                         continue;
@@ -653,7 +653,7 @@ async fn handle_browser_upload(
         let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
     }
     let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
-    match player.lock().await.play_file(&path).await {
+    match player.lock().await.play_file(&path) {
         Ok(()) => {
             let _ = status.send(format!("Воспроизведение: {} · {}", metadata.title, metadata.artist));
             send_http_json(&mut stream, "200 OK", json!({
