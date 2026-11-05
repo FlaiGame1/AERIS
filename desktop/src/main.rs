@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod aeris_protocol;
+mod media_metadata;
 mod mpv_player;
 
 use eframe::egui;
@@ -105,6 +106,16 @@ impl AerisDesktop {
                     Ok(message) => {
                         if let Some(path) = message.strip_prefix("COVER_PATH:") {
                             self.cover_path = path.to_owned();
+                            continue;
+                        }
+                        if let Some(payload) = message.strip_prefix("MEDIA_METADATA:") {
+                            if let Ok(metadata) = serde_json::from_str::<media_metadata::MediaMetadata>(payload) {
+                                self.track_title = metadata.title;
+                                self.track_artist = metadata.artist;
+                                if let Some(duration) = metadata.duration_seconds {
+                                    self.playback_duration = duration;
+                                }
+                            }
                             continue;
                         }
                         if let Some(payload) = message.strip_prefix("PLAYBACK:") {
