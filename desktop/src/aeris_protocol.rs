@@ -91,7 +91,11 @@ pub async fn run_server(shutdown: Arc<Notify>, status: mpsc::Sender<String>, pla
     loop {
         tokio::select! {
             _ = playback_tick.tick() => {
-                if let Ok(playback) = player.lock().await.playback_status() {
+                let mut engine = player.lock().await;
+                for event in engine.poll_events() {
+                    let _ = status.send(format!("MEDIA_EVENT:{event}"));
+                }
+                if let Ok(playback) = engine.playback_status() {
                     if playback.get("idle").and_then(Value::as_bool) != Some(true) {
                         let _ = status.send(format!("PLAYBACK:{}", playback));
                     }
