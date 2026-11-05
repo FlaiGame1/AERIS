@@ -358,14 +358,14 @@ async fn handle_client(
                         // media bytes do not contain embedded ID3/MP4 tags.
                         metadata.title = title.clone();
                         metadata.artist = artist.clone();
-                        if let Some(cover_path) = metadata.cover_path.as_ref() {
-                            let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
-                        }
-                        let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
                         let playback = match player.lock().await.play_file(&transfer.path) {
                             Ok(()) => {
                                 transfer.cleanup.keep = true; // AerisPlayer owns and removes this file at track end/stop.
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
+                                if let Some(cover_path) = metadata.cover_path.as_ref() {
+                                    let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
+                                }
+                                let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
                                 "playing"
                             }
                             Err(error) => {
@@ -668,14 +668,14 @@ async fn handle_browser_upload(
     drop(file);
     let digest = format!("{:x}", hasher.finalize());
     let metadata = MediaMetadata::read(&path);
-    if let Some(cover_path) = metadata.cover_path.as_ref() {
-        let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
-    }
-    let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
     match player.lock().await.play_file(&path) {
         Ok(()) => {
             cleanup.keep = true; // AerisPlayer owns and removes the uploaded file at track end/stop.
             let _ = status.send(format!("Воспроизведение: {} · {}", metadata.title, metadata.artist));
+            if let Some(cover_path) = metadata.cover_path.as_ref() {
+                let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
+            }
+            let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
             send_http_json(&mut stream, "200 OK", json!({
                 "success":true,
                 "file_name":file_name.clone(),
