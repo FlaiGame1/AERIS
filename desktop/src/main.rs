@@ -156,7 +156,7 @@ impl AerisDesktop {
                         if let Some(name) = message.strip_prefix("Воспроизведение: ") {
                             self.cover_path.clear();
                             self.cover_loaded_path.clear();
-                            self.cover_texture = None;
+                            self.cover_texture = None;\n                            self.video_texture = None;\n                            self.video_pts = None;
                             self.background_texture = None;
                             let mut parts = name.splitn(2, " · ");
                             self.track_title = parts.next().unwrap_or(name).to_owned();
@@ -296,6 +296,19 @@ impl Drop for AerisDesktop {
 impl eframe::App for AerisDesktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.check_receiver();
+        if let Ok(engine) = self.player.try_lock() {
+            if let Some(alhazen_core::VideoFrame::Bgra { width, height, bgra, pts }) = engine.current_frame() {
+                if self.video_pts != Some(pts) && width > 0 && height > 0 && bgra.len() >= (width as usize * height as usize * 4) {
+                    let mut rgba = vec![0u8; width as usize * height as usize * 4];
+                    for (src, dst) in bgra.chunks_exact(4).zip(rgba.chunks_exact_mut(4)) {
+                        dst.copy_from_slice(&[src[2], src[1], src[0], src[3]]);
+                    }
+                    let image = egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
+                    self.video_texture = Some(ctx.load_texture("aeris-video-frame", image, egui::TextureOptions::LINEAR));
+                    self.video_pts = Some(pts);
+                }
+            }
+        }
         if !self.cover_path.is_empty() && self.cover_path != self.cover_loaded_path {
             if let Ok(bytes) = std::fs::read(&self.cover_path) {
                 if let Ok(decoded) = image::load_from_memory(&bytes) {
