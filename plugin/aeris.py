@@ -327,12 +327,12 @@ def _media_metadata(message, account=None):
         except Exception:
             return None
 
-    def safe_call(obj, name):
+    def safe_call(obj, name, *args):
         method = safe_get(obj, name)
         if not callable(method):
             return ""
         try:
-            value = method()
+            value = method(*args)
             return str(value).strip() if value is not None else ""
         except Exception:
             return ""
@@ -358,9 +358,9 @@ def _media_metadata(message, account=None):
     # resolve the audio attributes without depending on a cache filename.
     for candidate in candidates:
         if not result["track_title"]:
-            result["track_title"] = safe_call(candidate, "getMusicTitle")
+            result["track_title"] = safe_call(candidate, "getMusicTitle", False)
         if not result["track_artist"]:
-            result["track_artist"] = safe_call(candidate, "getMusicAuthor")
+            result["track_artist"] = safe_call(candidate, "getMusicAuthor", False)
 
     # Read TL_documentAttributeAudio fields directly as a compatibility path.
     for candidate in candidates:
