@@ -60,27 +60,13 @@ jobs:
       - name: Test AERIS Desktop
         run: cargo test --release --target x86_64-pc-windows-msvc
 
-      - name: Download mpv runtime
+      - name: Install NASM for native decoder builds
         shell: pwsh
         run: |
-          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
-            choco install 7zip --no-progress -y
+          if (-not (Get-Command nasm -ErrorAction SilentlyContinue)) {
+            choco install nasm --no-progress -y
           }
-          $release = Invoke-RestMethod -Headers @{ "User-Agent" = "AERIS-Build" } -Uri "https://api.github.com/repos/zhongfly/mpv-winbuild/releases/latest"
-          $asset = $release.assets | Where-Object { $_.name -match '^mpv-x86_64-.*\.7z$' } | Select-Object -First 1
-          if (-not $asset) { throw "Could not find the x86_64 mpv runtime asset." }
-          $archive = Join-Path $env:RUNNER_TEMP $asset.name
-          $extract = Join-Path $env:RUNNER_TEMP "aeris-mpv"
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $archive
-          New-Item -ItemType Directory -Force $extract | Out-Null
-          7z x $archive "-o$extract" -y | Out-Null
-          $mpvExe = Get-ChildItem -Path $extract -Filter "mpv.exe" -Recurse | Select-Object -First 1
-          if (-not $mpvExe) { throw "mpv.exe was not found in the downloaded archive." }
-          $stageMpv = Join-Path $env:GITHUB_WORKSPACE "dist\AERIS-Desktop\mpv"
-          New-Item -ItemType Directory -Force $stageMpv | Out-Null
-          Copy-Item -Path (Join-Path $mpvExe.Directory.FullName "*") -Destination $stageMpv -Recurse -Force
-          "MPV_SOURCE=$($release.html_url)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "MPV_ASSET=$($asset.name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          nasm -v
 
       - name: Build AERIS Desktop
         run: cargo build --release --target x86_64-pc-windows-msvc
@@ -90,35 +76,27 @@ jobs:
         run: |
           $stage = Join-Path $env:GITHUB_WORKSPACE "dist\AERIS-Desktop"
           New-Item -ItemType Directory -Force "$stage\licenses" | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\licenses\MPV-RUNTIME-NOTICE.txt" "$stage\licenses" -Force
           Copy-Item "target\x86_64-pc-windows-msvc\release\aeris-desktop.exe" $stage
           @"
           AERIS Desktop 1.0.0
 
-          Run aeris-desktop.exe. The first media transfer starts the bundled
-          mpv playback engine. Audio and video playback are handled by mpv.
-          Keep the mpv folder next to aeris-desktop.exe.
+          Run aeris-desktop.exe. AERIS uses its integrated native media pipeline:
+          audio output and video decoding are handled inside the application.
+          No mpv.exe or separate player window is required.
 
           The Android plugin pairs once using the six-character code. A
           device token is then stored on this PC and reused for later sessions.
-          The phone can play, pause, resume, stop, seek, change volume and request playback status.
-          A browser uploader is available at http://<PC-LAN-IP>:45873 for direct phone-to-PC file transfer without Telegram.
+          Playback controls remain on the paired phone.
+          A browser uploader is available at http://<PC-LAN-IP>:45873.
 
           AERIS uses an unencrypted WebSocket connection on the private LAN.
           Use only a trusted home network. Do not expose ports 45872 or 45873 to the internet.
 
-          Third-party runtime:
-          mpv source: $env:MPV_SOURCE
-          Runtime archive: $env:MPV_ASSET
-          See the included mpv license files and upstream license notices.
+          Media backend: alhazen-core (Apache-2.0); see upstream NOTICE:
+          https://github.com/alhazen-rs/alhazen-core
           "@ | Set-Content -Encoding UTF8 "$stage\README.txt"
-
-          $licenseCandidates = Get-ChildItem -Path "$stage\mpv" -Recurse -File | Where-Object { $_.Name -match '^(LICENSE|COPYING|COPYING\.GPL|COPYING\.LGPL|README)$' }
-          foreach ($license in $licenseCandidates) {
-            $destination = Join-Path "$stage\licenses" ("mpv-" + $license.Name)
-            Copy-Item $license.FullName $destination -Force
-          }
-
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/alhazen-rs/alhazen-core/master/NOTICE" -OutFile "$stage\licenses\ALHAZEN-NOTICE.txt"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/alhazen-rs/alhazen-core/master/LICENSE" -OutFile "$stage\licenses\ALHAZEN-LICENSE.txt"
           Compress-Archive -Path "$stage\*" -DestinationPath "$env:GITHUB_WORKSPACE\dist\AERIS-Desktop-windows-x64-1.0.0.zip" -Force
 
       - name: Upload portable Windows package
