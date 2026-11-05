@@ -112,10 +112,14 @@ impl AerisDesktop {
                                 self.playback_position = state.get("position").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
                                 self.playback_duration = state.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0).max(0.0);
                                 if let Some(title) = state.get("metadata_title").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()) {
-                                    if self.track_title == "Ожидание воспроизведения" { self.track_title = title.to_owned(); }
+                                    if self.track_title == "Получено медиа" || self.track_title == "Ожидание воспроизведения" {
+                                        self.track_title = title.to_owned();
+                                    }
                                 }
                                 if let Some(artist) = state.get("metadata_artist").and_then(|v| v.as_str()).filter(|v| !v.trim().is_empty()) {
-                                    if self.track_artist == "AERIS • Desktop player" { self.track_artist = artist.to_owned(); }
+                                    if self.track_artist == "Неизвестный исполнитель" || self.track_artist == "AERIS • Desktop player" {
+                                        self.track_artist = artist.to_owned();
+                                    }
                                 }
                             }
                             continue;
@@ -179,12 +183,6 @@ impl AerisDesktop {
             }
             ui.add_space(18.0);
 
-            let title = if self.track_title.is_empty() { "Ожидание воспроизведения" } else { &self.track_title };
-            ui.label(egui::RichText::new(title).size(22.0).strong().color(egui::Color32::from_rgb(250, 247, 255)));
-            ui.add_space(5.0);
-            ui.label(egui::RichText::new(&self.track_artist).size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
-            ui.add_space(22.0);
-
             // Give the knob enough vertical room and derive both the rail and
             // the knob from the exact same center line.
             let (timeline, response) = ui.allocate_exact_size(egui::vec2(side, 28.0), egui::Sense::hover());
@@ -220,6 +218,11 @@ impl AerisDesktop {
                     ui.label(egui::RichText::new(if self.playback_duration > 0.0 { format!("{:02}:{:02}", self.playback_duration as u64 / 60, self.playback_duration as u64 % 60) } else { "--:--".to_owned() }).size(11.0).color(egui::Color32::from_rgb(190,181,204)));
                 });
             });
+            ui.add_space(18.0);
+            let title = if self.track_title.is_empty() { "Ожидание воспроизведения" } else { &self.track_title };
+            ui.label(egui::RichText::new(title).size(22.0).strong().color(egui::Color32::from_rgb(250, 247, 255)));
+            ui.add_space(5.0);
+            ui.label(egui::RichText::new(&self.track_artist).size(14.0).color(egui::Color32::from_rgb(190, 181, 204)));
             ui.add_space(18.0);
             ui.label(egui::RichText::new("Передай трек с телефона через плагин AERIS").size(12.0).color(egui::Color32::from_rgb(177,166,194)));
         });
