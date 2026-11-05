@@ -341,7 +341,6 @@ async fn handle_client(
 
                         // AERIS reads tags and artwork itself before handing the media
                         // to the playback backend. Phone-provided labels take precedence.
-                        transfer.cleanup.keep = true;
                         let mut metadata = MediaMetadata::read(&transfer.path);
                         if !transfer.track_album.trim().is_empty() {
                             metadata.album = transfer.track_album.trim().to_owned();
@@ -355,12 +354,17 @@ async fn handle_client(
                         let artist = if !transfer.track_artist.trim().is_empty() {
                             transfer.track_artist.trim().to_owned()
                         } else { metadata.artist.clone() };
+                        // Telegram message metadata is authoritative when the cached
+                        // media bytes do not contain embedded ID3/MP4 tags.
+                        metadata.title = title.clone();
+                        metadata.artist = artist.clone();
                         if let Some(cover_path) = metadata.cover_path.as_ref() {
                             let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
                         }
                         let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
                         let playback = match player.lock().await.play_file(&transfer.path) {
                             Ok(()) => {
+                                transfer.cleanup.keep = true; // AerisPlayer owns and removes this file at track end/stop.
                                 let _ = status.send(format!("Воспроизведение: {} · {}", title, artist));
                                 "playing"
                             }
@@ -390,7 +394,11 @@ async fn handle_client(
                             "play" => player.lock().await.play(),
                             "pause" => player.lock().await.pause(),
                             "toggle_pause" => player.lock().await.toggle_pause(),
-                            "stop" => player.lock().await.stop(),
+                            "stop" => {
+                                let result = player.lock().await.stop();
+                                if result.is_ok() { let _ = status.send("MEDIA_EVENT:Воспроизведение остановлено".into()); }
+                                result
+                            },
                             "seek" => {
                                 let position = env.payload.get("position").and_then(Value::as_f64);
                                 match position.filter(|v| v.is_finite() && (0.0..=86400.0).contains(v)) {
@@ -659,9 +667,6 @@ async fn handle_browser_upload(
     file.flush()?;
     drop(file);
     let digest = format!("{:x}", hasher.finalize());
-    // The upload is complete; preserve it even if playback fails.
-    cleanup.keep = true;
-
     let metadata = MediaMetadata::read(&path);
     if let Some(cover_path) = metadata.cover_path.as_ref() {
         let _ = status.send(format!("COVER_PATH:{}", cover_path.display()));
@@ -669,6 +674,7 @@ async fn handle_browser_upload(
     let _ = status.send(format!("MEDIA_METADATA:{}", serde_json::to_string(&metadata)?));
     match player.lock().await.play_file(&path) {
         Ok(()) => {
+            cleanup.keep = true; // AerisPlayer owns and removes the uploaded file at track end/stop.
             let _ = status.send(format!("Воспроизведение: {} · {}", metadata.title, metadata.artist));
             send_http_json(&mut stream, "200 OK", json!({
                 "success":true,
