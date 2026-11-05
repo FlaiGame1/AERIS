@@ -2,7 +2,7 @@
 
 mod aeris_protocol;
 mod media_metadata;
-mod mpv_player;
+mod media_engine;
 
 use eframe::egui;
 use std::sync::{Arc, mpsc};
@@ -30,6 +30,9 @@ struct AerisDesktop {
     cover_loaded_path: String,
     cover_texture: Option<egui::TextureHandle>,
     background_texture: Option<egui::TextureHandle>,
+    player: Arc<tokio::sync::Mutex<media_engine::AerisPlayer>>,
+    video_texture: Option<egui::TextureHandle>,
+    video_pts: Option<std::time::Duration>,
 }
 
 impl Default for AerisDesktop {
@@ -52,6 +55,9 @@ impl Default for AerisDesktop {
             cover_loaded_path: String::new(),
             cover_texture: None,
             background_texture: None,
+            player: Arc::new(tokio::sync::Mutex::new(media_engine::AerisPlayer::new())),
+            video_texture: None,
+            video_pts: None,
         }
     }
 }
@@ -62,6 +68,7 @@ impl AerisDesktop {
         let thread_shutdown = shutdown.clone();
         let (ready_tx, ready_rx) = mpsc::channel();
         let startup_error_tx = ready_tx.clone();
+        let player = self.player.clone();
 
         let thread = thread::Builder::new()
             .name("aeris-protocol-server".to_owned())
@@ -69,7 +76,7 @@ impl AerisDesktop {
                 let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build();
                 match runtime {
                     Ok(runtime) => {
-                        if let Err(error) = runtime.block_on(aeris_protocol::run_server(thread_shutdown, ready_tx)) {
+                        if let Err(error) = runtime.block_on(aeris_protocol::run_server(thread_shutdown, ready_tx, player)) {
                             let _ = startup_error_tx.send(format!("Ошибка AERIS Protocol: {error:#}"));
                         }
                     }
@@ -182,7 +189,7 @@ impl AerisDesktop {
             let side = (available - 64.0).min(390.0).max(190.0);
             let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
             let painter = ui.painter();
-            if let Some(texture) = &self.cover_texture {
+            if let Some(texture) = self.video_texture.as_ref().or(self.cover_texture.as_ref()) {
                 painter.image(texture.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
             } else {
                 painter.rect_filled(rect, 28.0, egui::Color32::from_rgb(71, 52, 104));
@@ -342,7 +349,7 @@ impl eframe::App for AerisDesktop {
                 ui.label(egui::RichText::new(format!("AERIS {}  •  Material 3 preview", env!("CARGO_PKG_VERSION"))).size(10.0).color(muted));
             });
         });
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        let video_active = self.video_texture.is_some();\n        ctx.request_repaint_after(if video_active { std::time::Duration::from_millis(16) } else { std::time::Duration::from_millis(250) });
     }
 }
 
