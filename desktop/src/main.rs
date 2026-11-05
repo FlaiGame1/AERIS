@@ -107,10 +107,18 @@ impl AerisDesktop {
     }
 
     fn check_receiver(&mut self) {
+        // Drain the channel first so its immutable borrow ends before UI state
+        // (including textures and track metadata) is mutated.
+        let mut queued = Vec::new();
         if let Some(rx) = &self.ready_rx {
             loop {
                 match rx.try_recv() {
-                    Ok(message) => {
+                    Ok(message) => queued.push(message),
+                    Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+        }
+        for message in queued {
                         if let Some(event) = message.strip_prefix("MEDIA_EVENT:") {
                             if event.contains("завершено") || event.contains("остановлено") {
                                 self.clear_track_state();
@@ -171,11 +179,6 @@ impl AerisDesktop {
                             self.playback_position = 0.0;
                         }
                         self.status = message;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => break,
-                }
-            }
         }
         let finished = self.receiver_thread.as_ref().map(JoinHandle::is_finished).unwrap_or(false);
         if finished {
