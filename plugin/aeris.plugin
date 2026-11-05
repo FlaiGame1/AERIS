@@ -317,60 +317,97 @@ def _media_path(message_or_document, account=None):
         "AERIS не ищет папки AyuGram/exteraGram и не читает зашифрованные blobs. "
         "Диагностика: {}".format(detail)
     )
-def _media_metadata(message):
-    """Read visible Telegram audio tags from the selected message/document."""
+def _media_metadata(message, account=None):
+    """Read Telegram's own audio metadata, not the cached file name."""
     result = {"track_title": "", "track_artist": "", "cover_base64": ""}
-    try:
-        owner = getattr(message, "messageOwner", None)
-        candidates = [message, owner]
-        for candidate in list(candidates):
-            media = getattr(candidate, "media", None) if candidate is not None else None
-            document = getattr(media, "document", None) if media is not None else None
-            if document is not None:
-                candidates.append(document)
-        # Use only a thumbnail already present in Telegram's cache.
+
+    def safe_get(obj, name):
         try:
-            from client_utils import get_file_loader
-            loader = get_file_loader()
-            for candidate in candidates:
-                thumbs = getattr(candidate, "thumbs", None)
-                if thumbs is None:
-                    continue
-                try:
-                    thumb_items = list(thumbs)
-                except Exception:
-                    thumb_items = []
-                for thumb in reversed(thumb_items):
-                    try:
-                        thumb_file = loader.getPathToAttach(thumb)
-                        thumb_path = _file_object_path(thumb_file)
-                        if thumb_path and os.path.getsize(thumb_path) <= 36 * 1024:
-                            with open(thumb_path, "rb") as cover_file:
-                                result["cover_base64"] = base64.b64encode(cover_file.read()).decode("ascii")
-                            break
-                    except Exception:
-                        continue
-                if result["cover_base64"]:
-                    break
+            return getattr(obj, name, None) if obj is not None else None
         except Exception:
-            pass
+            return None
+
+    def safe_call(obj, name):
+        method = safe_get(obj, name)
+        if not callable(method):
+            return ""
+        try:
+            value = method()
+            return str(value).strip() if value is not None else ""
+        except Exception:
+            return ""
+
+    owner = safe_get(message, "messageOwner")
+    candidates = []
+    for candidate in (message, owner):
+        if candidate is not None and candidate not in candidates:
+            candidates.append(candidate)
+        media = safe_get(candidate, "media")
+        document = safe_get(media, "document")
+        if document is None:
+            getter = safe_get(candidate, "getDocument")
+            if callable(getter):
+                try:
+                    document = getter()
+                except Exception:
+                    document = None
+        if document is not None and document not in candidates:
+            candidates.append(document)
+
+    # MessageObject exposes these helpers in Telegram-based clients. They
+    # resolve the audio attributes without depending on a cache filename.
+    for candidate in candidates:
+        if not result["track_title"]:
+            result["track_title"] = safe_call(candidate, "getMusicTitle")
+        if not result["track_artist"]:
+            result["track_artist"] = safe_call(candidate, "getMusicAuthor")
+
+    # Read TL_documentAttributeAudio fields directly as a compatibility path.
+    for candidate in candidates:
+        attributes = safe_get(candidate, "attributes")
+        if attributes is None:
+            continue
+        try:
+            attributes = list(attributes)
+        except Exception:
+            continue
+        for attribute in attributes:
+            title = str(safe_get(attribute, "title") or "").strip()
+            artist = str(safe_get(attribute, "performer") or "").strip()
+            if title and not result["track_title"]:
+                result["track_title"] = title
+            if artist and not result["track_artist"]:
+                result["track_artist"] = artist
+            if result["track_title"] and result["track_artist"]:
+                break
+
+    # Try Telegram's cached thumbnail only; never trigger a new download.
+    try:
+        from client_utils import get_file_loader
+        loader = get_file_loader(account) if account is not None else get_file_loader()
         for candidate in candidates:
-            attributes = getattr(candidate, "attributes", None)
-            if attributes is None:
+            thumbs = safe_get(candidate, "thumbs")
+            if thumbs is None:
                 continue
-            for attribute in attributes:
-                if "AudioAttribute" not in str(type(attribute)) and not hasattr(attribute, "performer"):
+            try:
+                thumb_items = list(thumbs)
+            except Exception:
+                continue
+            for thumb in reversed(thumb_items):
+                try:
+                    thumb_file = loader.getPathToAttach(thumb)
+                    thumb_path = _file_object_path(thumb_file)
+                    if thumb_path and os.path.getsize(thumb_path) <= 36 * 1024:
+                        with open(thumb_path, "rb") as cover_file:
+                            result["cover_base64"] = base64.b64encode(cover_file.read()).decode("ascii")
+                        break
+                except Exception:
                     continue
-                title = str(getattr(attribute, "title", "") or "").strip()
-                artist = str(getattr(attribute, "performer", "") or "").strip()
-                if title:
-                    result["track_title"] = title
-                if artist:
-                    result["track_artist"] = artist
-                if title or artist:
-                    return result
+            if result["cover_base64"]:
+                break
     except Exception:
         pass
+
     return result
 
 
@@ -666,7 +703,7 @@ class AerisPlugin(BasePlugin):
                 raise RuntimeError("Сейчас в Telegram ничего не воспроизводится")
             account = getattr(message, "currentAccount", None)
             path = _media_path(message, account)
-            self._send_path(path, "текущий трек", _media_metadata(message))
+            self._send_path(path, "текущий трек", _media_metadata(message, account))
         except Exception as error:
             self.logger.exception("AERIS current player transfer failed")
             BulletinHelper.show_error("Не удалось передать текущий трек: {}".format(error))
@@ -689,7 +726,7 @@ class AerisPlugin(BasePlugin):
         for candidate in candidates:
             try:
                 path = _media_path(candidate, account)
-                self._send_path(path, "музыку профиля")
+                self._send_path(path, "музыку профиля", _media_metadata(candidate, account))
                 return
             except Exception:
                 continue
@@ -731,7 +768,7 @@ class AerisPlugin(BasePlugin):
             host, port, code = self._values()
             path = _media_path(message, account)
             self.logger.info("AERIS resolved local media path: {}".format(path))
-            self._send_path(path, "медиа", _media_metadata(message))
+            self._send_path(path, "медиа", _media_metadata(message, account))
         except Exception as error:
             self.logger.exception("AERIS message menu action failed")
             BulletinHelper.show_error("AERIS: {}".format(error))
