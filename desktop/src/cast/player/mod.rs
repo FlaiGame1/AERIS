@@ -1,7 +1,6 @@
 //! Player abstraction: a small actor that receives playback commands and
 //! publishes a status snapshot.
 
-pub mod mpv;
 pub mod vlc;
 
 use anyhow::Result;
@@ -55,7 +54,7 @@ pub enum PlayerCommand {
         /// `true` when the cast media has a video track (drives the video window).
         video: bool,
         /// What the sender says the track is called, which is what the platform shows. `None` when it said
-        /// nothing, in which case mpv keeps naming the stream after its URL.
+        /// nothing, in which case the active media backend supplies its own metadata.
         title: Option<String>,
         /// Where the sender picture was fetched to, if it offered one and it arrived.
         cover: Option<String>,
